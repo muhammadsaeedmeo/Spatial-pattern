@@ -1,6 +1,3 @@
-# app.py
-
-```python
 import streamlit as st
 import pandas as pd
 
@@ -23,13 +20,5 @@ if uploaded:
 
     st.write(f"### Summary of {choice}")
     st.write(data[choice].describe())
-```
 
-# requirements.txt
-
-```
-streamlit
-pandas
-openpyxl
-```
 
