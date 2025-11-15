@@ -3,68 +3,75 @@ import pandas as pd
 import pycountry
 import plotly.express as px
 
-st.title("Spatial Pattern Visualizer (No GeoPandas Required)")
+# -------------------------------------------------------------------
+# 1. Custom country name mappings (extend freely)
+# -------------------------------------------------------------------
+CUSTOM_MAP = {
+    "Turkey": "Turkey",
+    "Türkiye": "Turkey",
+    "Russia": "Russian Federation",
+    "Iran": "Iran, Islamic Republic of",
+    "Vietnam": "Viet Nam",
+    "South Korea": "Korea, Republic of",
+    "North Korea": "Korea, Democratic People's Republic of",
+}
 
-# -----------------------------------------------------------
-# Upload data
-# -----------------------------------------------------------
-uploaded = st.file_uploader("Upload your dataset (CSV or Excel)", type=["csv", "xlsx"])
+# -------------------------------------------------------------------
+# 2. Safe resolver: maps raw names to ISO3
+# -------------------------------------------------------------------
+def resolve_country(name: str):
+    # Apply reconciling dictionary
+    if name in CUSTOM_MAP:
+        name = CUSTOM_MAP[name]
 
-if uploaded is not None:
-    if uploaded.name.endswith(".csv"):
-        df = pd.read_csv(uploaded)
+    try:
+        return pycountry.countries.lookup(name).alpha_3
+    except:
+        return None
+
+# -------------------------------------------------------------------
+# 3. Streamlit App
+# -------------------------------------------------------------------
+st.title("Country-Level Choropleth (General & Geopandas-Free)")
+
+# User uploads any file containing "country" and "value" columns
+file = st.file_uploader("Upload your dataset (CSV/XLSX)")
+
+if file:
+    if file.name.endswith(".csv"):
+        df = pd.read_csv(file)
     else:
-        df = pd.read_excel(uploaded)
+        df = pd.read_excel(file)
 
-    st.subheader("Raw Data Preview")
-    st.write(df.head())
-
-    # -----------------------------------------------------------
-    # Select columns
-    # -----------------------------------------------------------
-    country_col = st.selectbox("Select country column", df.columns)
-    value_col = st.selectbox("Select value column to map", df.columns)
-
-    # -----------------------------------------------------------
-    # Clean country names
-    # -----------------------------------------------------------
-    df["__country_clean__"] = (
-        df[country_col]
-        .astype(str)
-        .str.strip()
-        .str.replace(r"\s+", " ", regex=True)
-        .str.replace(r"[.]", "", regex=True)
-        .str.title()
-    )
-
-    # -----------------------------------------------------------
-    # Convert names to ISO-3
-    # -----------------------------------------------------------
-    def to_iso(x):
-        try:
-            return pycountry.countries.lookup(x).alpha_3
-        except:
-            return None
-
-    df["iso_code"] = df["__country_clean__"].apply(to_iso)
-
-    bad = df[df["iso_code"].isna()][country_col].unique()
-    if len(bad) > 0:
-        st.error("These country names could not be recognized:")
-        st.write(list(bad))
+    if "country" not in df.columns:
+        st.error("Your dataset must contain a column named 'country'.")
         st.stop()
 
-    # -----------------------------------------------------------
-    # Plotly world choropleth (built-in geometry)
-    # -----------------------------------------------------------
+    # Resolve ISO codes
+    df["iso3"] = df["country"].apply(resolve_country)
+
+    unresolved = df[df["iso3"].isna()]["country"].unique().tolist()
+
+    if unresolved:
+        st.warning(f"Unrecognized country names: {unresolved}")
+
+    df_clean = df.dropna(subset=["iso3"])
+
+    # User chooses variable to plot
+    numeric_cols = df_clean.select_dtypes(include=["int64", "float64"]).columns.tolist()
+    variable = st.selectbox("Select variable for shading:", numeric_cols)
+
+    # -------------------------------------------------------------------
+    # 4. Plotly choropleth
+    # -------------------------------------------------------------------
     fig = px.choropleth(
-        df,
-        locations="iso_code",
-        color=value_col,
-        hover_name="__country_clean__",
+        df_clean,
+        locations="iso3",
+        color=variable,
+        hover_name="country",
         projection="natural earth",
-        color_continuous_scale="Viridis"
+        color_continuous_scale="Viridis",
     )
 
-    st.subheader("Spatial Pattern Map")
+    fig.update_geos(showcountries=True, showcoastlines=True)
     st.plotly_chart(fig, use_container_width=True)
