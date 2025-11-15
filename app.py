@@ -13,6 +13,7 @@ def normalize_country(name: str):
     clean = clean.replace("\xa0", " ")
     clean = clean.strip()
 
+    # Hard override for all Turkey/Türkiye variants
     if clean.lower() in ["turkey", "türkiye", "turkiye"]:
         return "TUR"
 
@@ -29,34 +30,37 @@ st.title("Choropleth Map for Country-Level Variables")
 file = st.file_uploader("Upload CSV or Excel with a 'country' column")
 
 if file:
+    # Load file
     if file.name.endswith(".csv"):
         df = pd.read_csv(file)
     else:
         df = pd.read_excel(file)
 
+    # Basic validation
     if "country" not in df.columns:
         st.error("Dataset must contain a 'country' column.")
         st.stop()
 
+    # Resolve ISO3
     df["iso3"] = df["country"].apply(normalize_country)
-
     unresolved = df[df["iso3"].isna()]["country"].unique().tolist()
+
     if unresolved:
         st.warning(f"Unrecognized country names: {unresolved}")
 
+    # Drop rows without valid ISO3
     df_clean = df.dropna(subset=["iso3"])
 
+    # Select numeric variable
     numeric_cols = df_clean.select_dtypes(include=["float64", "int64"]).columns.tolist()
     variable = st.selectbox("Select variable to map:", numeric_cols)
 
-    # =============================================
-    # COLOR PICKER for country name labels
-    # =============================================
+    # Color picker for country name labels for visibility
     label_color = st.color_picker("Select country label color:", "#FFFFFF")
 
-    # =============================================
+    # ============================================================
     # Choropleth
-    # =============================================
+    # ============================================================
     fig = px.choropleth(
         df_clean,
         locations="iso3",
@@ -73,7 +77,7 @@ if file:
         coastlinecolor="gray",
     )
 
-    # Label each country
+    # Country text labels
     for _, row in df_clean.iterrows():
         fig.add_scattergeo(
             locations=[row["iso3"]],
@@ -86,11 +90,26 @@ if file:
 
     st.plotly_chart(fig, use_container_width=True)
 
-    # Interpretation note
+    # ============================================================
+    # Automatic one-line interpretation
+    # ============================================================
+    max_row = df_clean.loc[df_clean[variable].idxmax()]
+    min_row = df_clean.loc[df_clean[variable].idxmin()]
+
+    auto_note = (
+        f"{max_row['country']} exhibits the highest level of {variable}, "
+        f"while {min_row['country']} shows the lowest value among the countries."
+    )
+
+    st.markdown(f"**Auto-Interpretation:** {auto_note}")
+
+    # ============================================================
+    # Interpretation note for the color scale
+    # ============================================================
     st.markdown(
         f"""
         ### Interpretation  
-        The color scale shows the relative magnitude of **{variable}** across countries.  
-        Darker colors indicate higher values and lighter colors indicate lower values.
+        The color scale reflects the magnitude of **{variable}**.  
+        Darker tones indicate higher values, whereas lighter tones indicate lower values.  
         """
     )
