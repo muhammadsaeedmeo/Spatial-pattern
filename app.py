@@ -1,66 +1,88 @@
 import streamlit as st
+import geopandas as gpd
 import pandas as pd
-import plotly.express as px
 import pycountry
+import plotly.express as px
 
-st.title("Spatial Pattern Mapper for Panel Variables")
+st.title("Spatial Pattern Visualizer")
 
-uploaded = st.file_uploader(
-    "Upload CSV or Excel with a 'Country' column and at least one numeric variable",
-    type=["csv", "xlsx", "xls"]
-)
+# -----------------------------------------------------------
+# Upload data
+# -----------------------------------------------------------
+uploaded = st.file_uploader("Upload your dataset (CSV or Excel)", type=["csv", "xlsx"])
 
-def to_iso3(name):
-    try:
-        return pycountry.countries.lookup(name).alpha_3
-    except:
-        return None
-
-if uploaded:
-    # Load input
-    if uploaded.name.endswith("csv"):
+if uploaded is not None:
+    # Load file
+    if uploaded.name.endswith(".csv"):
         df = pd.read_csv(uploaded)
     else:
         df = pd.read_excel(uploaded)
 
-    st.write("### Data Preview")
-    st.dataframe(df.head())
+    st.subheader("Raw Data Preview")
+    st.write(df.head())
 
+    # -----------------------------------------------------------
+    # Select columns
+    # -----------------------------------------------------------
+    country_col = st.selectbox("Select country column", df.columns)
+    value_col = st.selectbox("Select value column to map", df.columns)
+
+    # -----------------------------------------------------------
     # Clean country names
-    df["Country"] = (
-        df["Country"].astype(str)
+    # -----------------------------------------------------------
+    df["__country_clean__"] = (
+        df[country_col]
+        .astype(str)
         .str.strip()
-        .str.replace(r"[.]", "", regex=True)
         .str.replace(r"\s+", " ", regex=True)
+        .str.replace(r"[.]", "", regex=True)
         .str.title()
     )
 
-    # Convert to ISO3 dynamically
-    df["ISO"] = df["Country"].apply(to_iso3)
+    # -----------------------------------------------------------
+    # Convert to ISO-3
+    # -----------------------------------------------------------
+    def to_iso(x):
+        try:
+            return pycountry.countries.lookup(x).alpha_3
+        except:
+            return None
 
-    # Unmatched check
-    missing = df[df["ISO"].isna()]
-    if len(missing) > 0:
+    df["ISO"] = df["__country_clean__"].apply(to_iso)
+
+    # Report bad names
+    bad = df[df["ISO"].isna()][country_col].unique()
+
+    if len(bad) > 0:
         st.error("These country names could not be recognized:")
-        st.dataframe(missing)
+        st.write(list(bad))
         st.stop()
 
-    # Let user select variable to map
-    numeric_vars = df.select_dtypes(include="number").columns.tolist()
-    if len(numeric_vars) == 0:
-        st.error("No numeric variables found to plot.")
-        st.stop()
+    # -----------------------------------------------------------
+    # Load world geometry
+    # -----------------------------------------------------------
+    world = gpd.read_file(gpd.datasets.get_path("naturalearth_lowres"))
+    world = world[["iso_a3", "geometry"]]
 
-    var = st.selectbox("Select variable to map", numeric_vars)
+    # -----------------------------------------------------------
+    # Merge
+    # -----------------------------------------------------------
+    merged = world.merge(df, left_on="iso_a3", right_on="ISO", how="left")
 
-    # Plot
+    # -----------------------------------------------------------
+    # Choropleth map
+    # -----------------------------------------------------------
+    st.subheader("Spatial Pattern Map")
+
     fig = px.choropleth(
-        df,
-        locations="ISO",
-        color=var,
-        hover_name="Country",
-        color_continuous_scale="YlOrRd",
+        merged,
+        geojson=merged.geometry,
+        locations=merged.index,
+        color=value_col,
         projection="natural earth",
-        title=f"Spatial Pattern of {var}"
+        hover_name="__country_clean__",
+        color_continuous_scale="Viridis",
     )
+    fig.update_geos(fitbounds="locations", visible=False)
+
     st.plotly_chart(fig, use_container_width=True)
