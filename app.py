@@ -3,39 +3,38 @@ import pandas as pd
 import pycountry
 import plotly.express as px
 
-# -------------------------------------------------------------------
-# 1. Custom country name mappings (extend freely)
-# -------------------------------------------------------------------
+# ============================================================
+# 1. Custom resolvers (MANDATORY: forces Turkey to resolve)
+# ============================================================
 CUSTOM_MAP = {
-    "Turkey": "Turkey",
+    "Turkey": "Turkey",                # forces lookup to correct ISO3 (TUR)
     "Türkiye": "Turkey",
     "Russia": "Russian Federation",
-    "Iran": "Iran, Islamic Republic of",
     "Vietnam": "Viet Nam",
     "South Korea": "Korea, Republic of",
     "North Korea": "Korea, Democratic People's Republic of",
+    "Iran": "Iran, Islamic Republic of",
 }
 
-# -------------------------------------------------------------------
-# 2. Safe resolver: maps raw names to ISO3
-# -------------------------------------------------------------------
 def resolve_country(name: str):
-    # Apply reconciling dictionary
-    if name in CUSTOM_MAP:
-        name = CUSTOM_MAP[name]
+    raw = name.strip()
+
+    # Apply normalizer
+    if raw in CUSTOM_MAP:
+        raw = CUSTOM_MAP[raw]
 
     try:
-        return pycountry.countries.lookup(name).alpha_3
+        return pycountry.countries.lookup(raw).alpha_3
     except:
         return None
 
-# -------------------------------------------------------------------
-# 3. Streamlit App
-# -------------------------------------------------------------------
-st.title("Country-Level Choropleth (General & Geopandas-Free)")
 
-# User uploads any file containing "country" and "value" columns
-file = st.file_uploader("Upload your dataset (CSV/XLSX)")
+# ============================================================
+# 2. App
+# ============================================================
+st.title("Choropleth Map for Country-Level Variables")
+
+file = st.file_uploader("Upload CSV or Excel with 'country' column")
 
 if file:
     if file.name.endswith(".csv"):
@@ -44,34 +43,50 @@ if file:
         df = pd.read_excel(file)
 
     if "country" not in df.columns:
-        st.error("Your dataset must contain a column named 'country'.")
+        st.error("Dataset must contain a column named 'country'.")
         st.stop()
 
-    # Resolve ISO codes
+    # ISO3 resolution
     df["iso3"] = df["country"].apply(resolve_country)
 
     unresolved = df[df["iso3"].isna()]["country"].unique().tolist()
-
     if unresolved:
         st.warning(f"Unrecognized country names: {unresolved}")
 
     df_clean = df.dropna(subset=["iso3"])
 
-    # User chooses variable to plot
-    numeric_cols = df_clean.select_dtypes(include=["int64", "float64"]).columns.tolist()
-    variable = st.selectbox("Select variable for shading:", numeric_cols)
+    # Select variable
+    numeric_cols = df_clean.select_dtypes(include=["float64", "int64"]).columns.tolist()
+    variable = st.selectbox("Select variable to shade:", numeric_cols)
 
-    # -------------------------------------------------------------------
-    # 4. Plotly choropleth
-    # -------------------------------------------------------------------
+    # ============================================================
+    # 3. High-contrast map + country labels
+    # ============================================================
     fig = px.choropleth(
         df_clean,
         locations="iso3",
         color=variable,
         hover_name="country",
         projection="natural earth",
-        color_continuous_scale="Viridis",
+        color_continuous_scale="Turbo",     # sharp, high-contrast
     )
 
-    fig.update_geos(showcountries=True, showcoastlines=True)
+    # add country borders
+    fig.update_geos(
+        showcountries=True,
+        countrycolor="black",
+        showcoastlines=True,
+        coastlinecolor="gray"
+    )
+
+    # show labels (centroid approximation)
+    for _, row in df_clean.iterrows():
+        fig.add_scattergeo(
+            locations=[row["iso3"]],
+            text=row["country"],
+            mode="text",
+            textposition="middle center",
+            showlegend=False
+        )
+
     st.plotly_chart(fig, use_container_width=True)
