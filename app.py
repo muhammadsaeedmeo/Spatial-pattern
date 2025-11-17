@@ -9,12 +9,12 @@ CORRECT_PASSWORD = "1992"
 
 # ============================================================
 # ISO NORMALIZATION + Turkey override
-# Returns alpha_3 for mapping and alpha_2 for short labels
+# Returns alpha_3, alpha_2, and official country name
 # ============================================================
 def normalize_country(name: str):
     """
     Cleans and standardizes country names. 
-    Returns a tuple: (alpha_3 code for map, alpha_2 code for labels).
+    Returns a tuple: (alpha_3 code for map, alpha_2 code for labels, official country name).
     """
     # 1. Standardize and clean the input string
     clean = unicodedata.normalize("NFKD", str(name)).strip()
@@ -24,13 +24,12 @@ def normalize_country(name: str):
     
     # 2. Hard override for specific names
     if clean.lower() in ["turkey", "türkiye", "turkiye"]:
-        return "TUR", "TR"
+        return "TUR", "TR", "Turkey"
         
     # 3. Use pycountry to look up standard codes
     try:
         country = pycountry.countries.lookup(clean)
-        # Return both the 3-letter code (for location) and the 2-letter code (for short text)
-        # Also return the official country name for the legend
+        # Return alpha_3, alpha_2, and the official name
         return country.alpha_3, country.alpha_2, country.name
     except:
         return None, None, None
@@ -146,23 +145,48 @@ if check_password():
         ## 💡 Interpretation and Legend
         
         # ============================================================
-        # Automatic one-line interpretation
+        # 1. Automatic one-line interpretation (Highest and Lowest)
         # ============================================================
         st.markdown("## 💡 Interpretation")
+        
         if not df_clean.empty and variable in df_clean.columns:
+            # Find max and min
             max_row = df_clean.loc[df_clean[variable].idxmax()]
             min_row = df_clean.loc[df_clean[variable].idxmin()]
 
             auto_note = (
-                f"{max_row['country']} exhibits the **highest** level of **{variable}**, "
+                f"**Highest/Lowest:** {max_row['country']} exhibits the **highest** level of **{variable}**, "
                 f"while {min_row['country']} shows the **lowest** value among the countries."
             )
 
-            st.markdown(f"**Auto-Interpretation:** {auto_note}")
+            st.markdown(f"**Overall Summary:** {auto_note}")
 
         # ============================================================
-        # Interpretation note for the color scale
+        # 2. Top N Interpretation (New Feature)
         # ============================================================
+            st.markdown("### Top 5 Spatial Distribution")
+            
+            # Sort the data by the variable in descending order
+            df_ranked = df_clean.sort_values(by=variable, ascending=False).reset_index(drop=True)
+            df_top_5 = df_ranked.head(5).copy()
+            
+            # Add rank column
+            df_top_5['Rank'] = df_top_5.index + 1
+            
+            # Display the top 5 countries and their values
+            top_list = []
+            for _, row in df_top_5.iterrows():
+                # Format the value to 2 decimal places if it's a float
+                val = f"{row[variable]:,.2f}" if isinstance(row[variable], float) else row[variable]
+                top_list.append(f"**Rank {row['Rank']}:** {row['country']} ({val})")
+                
+            st.markdown("\n".join(top_list))
+
+        # ============================================================
+        # 3. Interpretation note for the color scale
+        # ============================================================
+        st.markdown("---")
+        st.markdown("### Color Scale Note")
         st.markdown(
             f"""
             The color scale reflects the magnitude of **{variable}**.  
@@ -173,24 +197,18 @@ if check_password():
         st.markdown("---") 
 
         # ============================================================
-        # Country Code Legend (New Feature)
+        # Country Code Legend (New Line Format)
         # ============================================================
-        st.markdown("## 🗺️ Country Code Legend")
-        st.markdown("Use this table to translate the **2-Letter Codes** displayed on the map.")
+        st.markdown("## 🗺️ Country Code Legend (Copy-Pasteable)")
+        st.markdown("This legend translates the **2-Letter Codes** displayed on the map to the full country name.")
         
-        # Create a DataFrame for the legend
-        legend_df = df_clean[["iso2_label", "country", "country_name_official"]].drop_duplicates(subset=["iso2_label"]).sort_values(by="country")
+        # Create a clean DataFrame for the legend
+        legend_df = df_clean[["iso2_label", "country_name_official"]].drop_duplicates(subset=["iso2_label"]).sort_values(by="country_name_official")
         
-        # Rename columns for display
-        legend_df = legend_df.rename(columns={
-            "iso2_label": "Map Code (ISO 2)",
-            "country": "Original Name",
-            "country_name_official": "Official Name",
-        })
-        
-        # Display the table
-        st.dataframe(
-            legend_df, 
-            hide_index=True, 
-            use_container_width=True
-        )
+        # Generate the text block
+        legend_text = []
+        for _, row in legend_df.iterrows():
+            legend_text.append(f"{row['iso2_label']}: {row['country_name_official']}")
+            
+        # Display the text in a code block for easy copy-pasting
+        st.code("\n".join(legend_text), language="")
