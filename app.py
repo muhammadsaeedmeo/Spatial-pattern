@@ -155,44 +155,56 @@ if file:
         plot_bgcolor='white'
     )
     
-    # Display the main map
-    st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': True, 'displaylogo': False})
-    
     # ============================================================
-    # Country Legend in Line Form
+    # Add Legend Inside Plot at Bottom
     # ============================================================
-    st.markdown("---")
-    st.subheader("📋 Country Legend")
-    
-    # Sort by variable value for better readability
+    # Sort by variable value for legend
     df_sorted = df_clean.sort_values(by=variable, ascending=False).reset_index(drop=True)
     
-    # Create color mapping based on the variable values
+    # Create color mapping
     min_val = df_sorted[variable].min()
     max_val = df_sorted[variable].max()
     
-    # Get color scale
     import plotly.colors as pc
     colors = pc.sample_colorscale(color_scale, 
                                   [(val - min_val) / (max_val - min_val) 
                                    for val in df_sorted[variable]])
     
-    # Display legend in columns for better layout
-    num_cols = 3
-    cols = st.columns(num_cols)
-    
+    # Create legend text with colors
+    legend_items = []
     for idx, row in df_sorted.iterrows():
-        col_idx = idx % num_cols
-        with cols[col_idx]:
-            color = colors[idx]
-            st.markdown(
-                f'<div style="display: flex; align-items: center; margin-bottom: 8px;">'
-                f'<div style="width: 20px; height: 20px; background-color: {color}; '
-                f'border: 1px solid #ccc; margin-right: 10px; border-radius: 3px;"></div>'
-                f'<span style="font-size: 13px; color: #2c3e50;"><b>{row["country"]}</b>: {row[variable]:.2f}</span>'
-                f'</div>',
-                unsafe_allow_html=True
-            )
+        legend_items.append(f"<span style='color:{colors[idx]}'>●</span> {row['country']} ({row[variable]:.2f})")
+    
+    # Split into multiple lines if too many countries
+    items_per_line = 6
+    legend_lines = []
+    for i in range(0, len(legend_items), items_per_line):
+        legend_lines.append(" | ".join(legend_items[i:i+items_per_line]))
+    
+    legend_text = "<br>".join(legend_lines)
+    
+    # Add annotation at bottom of plot for legend
+    fig.add_annotation(
+        text=f"<b>Country Legend:</b><br>{legend_text}",
+        xref="paper", yref="paper",
+        x=0.5, y=-0.15,
+        xanchor="center", yanchor="top",
+        showarrow=False,
+        font=dict(size=10, color="#2c3e50"),
+        align="center",
+        bgcolor="rgba(255,255,255,0.9)",
+        bordercolor="#ccc",
+        borderwidth=1,
+        borderpad=10
+    )
+    
+    # Adjust layout to accommodate legend
+    fig.update_layout(
+        margin=dict(l=0, r=0, t=50, b=150)  # Increased bottom margin for legend
+    )
+    
+    # Display the main map
+    st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': True, 'displaylogo': False})
     
     # ============================================================
     # Statistical Summary
@@ -216,21 +228,71 @@ if file:
                  delta=None, delta_color="normal")
     
     # ============================================================
-    # Automatic Interpretation
+    # Detailed Interpretation for All Countries
     # ============================================================
     st.markdown("---")
-    st.subheader("🔍 Key Insights")
+    st.subheader("🔍 Detailed Country-by-Country Interpretation")
     
-    max_row = df_clean.loc[df_clean[variable].idxmax()]
-    min_row = df_clean.loc[df_clean[variable].idxmin()]
+    # Sort by variable value
+    df_sorted = df_clean.sort_values(by=variable, ascending=False).reset_index(drop=True)
     
-    auto_note = (
-        f"**{max_row['country']}** exhibits the highest level of **{variable.replace('_', ' ')}** "
-        f"({max_row[variable]:.2f}), while **{min_row['country']}** shows the lowest value "
-        f"({min_row[variable]:.2f}) among the analyzed countries."
+    # Create comprehensive interpretation
+    interpretation_lines = []
+    
+    # Highest contributor
+    max_row = df_sorted.iloc[0]
+    interpretation_lines.append(
+        f"**{max_row['country']}** leads with the highest value of **{max_row[variable]:.2f}**, "
+        f"representing the strongest performance in {variable.replace('_', ' ')} among all countries analyzed."
     )
     
-    st.info(auto_note)
+    # High contributors (2nd to 25th percentile if exists)
+    high_threshold = int(len(df_sorted) * 0.25)
+    if len(df_sorted) > 1 and high_threshold > 1:
+        high_countries = df_sorted.iloc[1:high_threshold]
+        if len(high_countries) > 0:
+            high_names = ", ".join([f"**{row['country']}** ({row[variable]:.2f})" 
+                                   for _, row in high_countries.iterrows()])
+            interpretation_lines.append(
+                f"Following closely, {high_names} demonstrate high levels of {variable.replace('_', ' ')}, "
+                f"indicating strong performance in this metric."
+            )
+    
+    # Medium contributors (25th to 75th percentile)
+    medium_start = high_threshold
+    medium_end = int(len(df_sorted) * 0.75)
+    if medium_end > medium_start:
+        medium_countries = df_sorted.iloc[medium_start:medium_end]
+        if len(medium_countries) > 0:
+            medium_names = ", ".join([f"**{row['country']}** ({row[variable]:.2f})" 
+                                     for _, row in medium_countries.iterrows()])
+            interpretation_lines.append(
+                f"In the moderate range, {medium_names} show average levels of {variable.replace('_', ' ')}, "
+                f"maintaining steady performance."
+            )
+    
+    # Low contributors (75th percentile to second-last)
+    if medium_end < len(df_sorted) - 1:
+        low_countries = df_sorted.iloc[medium_end:-1]
+        if len(low_countries) > 0:
+            low_names = ", ".join([f"**{row['country']}** ({row[variable]:.2f})" 
+                                  for _, row in low_countries.iterrows()])
+            interpretation_lines.append(
+                f"Towards the lower end, {low_names} exhibit relatively lower values of {variable.replace('_', ' ')}, "
+                f"suggesting areas for potential improvement."
+            )
+    
+    # Lowest contributor
+    min_row = df_sorted.iloc[-1]
+    interpretation_lines.append(
+        f"Finally, **{min_row['country']}** records the lowest value at **{min_row[variable]:.2f}**, "
+        f"indicating the weakest performance in {variable.replace('_', ' ')} among the countries studied."
+    )
+    
+    # Display interpretation
+    for line in interpretation_lines:
+        st.markdown(line)
+        st.markdown("")  # Add spacing
     
     # Additional interpretation
     st.markdown(
