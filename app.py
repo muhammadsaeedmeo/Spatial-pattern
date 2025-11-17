@@ -36,7 +36,8 @@ password_input = st.sidebar.text_input(
 )
 
 if password_input != PASSWORD:
-    st.error("Access Denied. Please enter the correct password.")
+    if password_input:
+        st.error("Access Denied. Please enter the correct password.")
     st.stop()
 
 # --- MAIN APP CONTENT ---
@@ -68,24 +69,34 @@ if file:
     numeric_cols = df_clean.select_dtypes(include=["float64", "int64"]).columns.tolist()
     variable = st.selectbox("Select variable to map:", numeric_cols)
 
-    # Color picker for country name labels for visibility (not used on map, but kept)
-    label_color = st.color_picker("Select country label color:", "#FFFFFF")
+    # --- Prepare Interpretation Data ---
+    df_sorted = df_clean.sort_values(by=variable, ascending=False).reset_index(drop=True)
+    max_row = df_sorted.iloc[0]
+    min_row = df_sorted.iloc[-1]
     
     # ============================================================
     # Choropleth
     # ============================================================
     st.subheader(f"Map Visualization of **{variable}**")
     
+    # Set up a dynamic subtitle/caption for the plot
+    caption_text = (
+        f"**Color Interpretation:** Darker tones (high values) peak at **{max_row['country']}** "
+        f"(Value: {max_row[variable]:.2f}), and lighter tones (low values) bottom out at **{min_row['country']}** "
+        f"(Value: {min_row[variable]:.2f})."
+    )
+
     fig = px.choropleth(
         df_clean,
         locations="iso3",
         color=variable,
-        # Hover text is crucial for identifying countries without cluttering the map
         hover_name="country",
         projection="natural earth",
         color_continuous_scale="Viridis",
         template="plotly_white",
         height=600,
+        # Add the caption/legend text as a subtitle to the figure
+        title=f"Geographical Distribution of {variable}<br><sup>{caption_text}</sup>"
     )
 
     fig.update_geos(
@@ -95,14 +106,22 @@ if file:
         coastlinecolor="gray",
         oceancolor="aliceblue"
     )
+    
+    # Adjust title position to look better as a combined title/subtitle
+    fig.update_layout(
+        title={
+            'y': 0.95,
+            'x': 0.5,
+            'xanchor': 'center',
+            'yanchor': 'top'
+        }
+    )
 
     st.plotly_chart(fig, use_container_width=True)
     
     # ============================================================
-    # 3. Country-Color Legend/Data Table (Sidebar)
+    # 3. Country Data Table (Sidebar)
     # ============================================================
-    df_sorted = df_clean.sort_values(by=variable, ascending=False).reset_index(drop=True)
-    
     st.sidebar.header("Country Data Table")
     st.sidebar.markdown(f"**Sorted values for: {variable}**")
     st.sidebar.dataframe(
@@ -112,42 +131,22 @@ if file:
     )
 
     # ============================================================
-    # 4. Clearer Interpretation (Including Country-Color Mapping)
+    # 4. Clearer Interpretation (Research Article Perspective)
     # ============================================================
     st.markdown("---")
     st.header("🔍 Interpretation of Results")
     
-    # --- Automatic Interpretation ---
-    max_row = df_sorted.iloc[0]
-    min_row = df_sorted.iloc[-1]
-    
-    st.markdown("### Geographical Distribution Summary")
-    st.info(
-        f"The visualization shows a strong correlation between color and value, where the **darkest shade** represents the maximum value and the **lightest shade** represents the minimum value."
-    )
-    
-    # --- Explicit Color-Country Mapping (The requested "Legend at the bottom") ---
-    st.markdown("### 🎨 Color-Country Association Guide")
-    st.markdown(
-        f"""
-        For immediate visual understanding, here is how the colors relate to the key countries, based on the **Viridis** color scale:
-        
-        * **Highest Value (Darkest Purple/Yellow):** **{max_row['country']}** (Value: **{max_row[variable]:.2f}**).
-        * **Lowest Value (Lightest Yellow/Green):** **{min_row['country']}** (Value: **{min_row[variable]:.2f}**).
-        
-        Please mouse over any country on the map to instantly see its name and precise value. The full sorted list of countries and their values is available in the **sidebar**.
-        """
-    )
-
-    # --- Research Article Perspective ---
     st.markdown("### Research Article Perspective (Discussion/Results Section)")
     
     st.markdown(
-        """
+        f"""
         The choropleth map provides compelling evidence regarding the spatial distribution of **{variable}**. 
         From a research standpoint, the color gradation—where **darker tones correlate with higher values** and **lighter tones with lower values**—reveals distinct regional clusters. 
         
-        * **Hypothesis Generation:** The strong visual contrast between the maximum and minimum values (e.g., between {max_row['country']} and {min_row['country']}) suggests that geographical, economic, or policy factors may be significantly driving the variance in **{variable}**. 
+        * **Maximum Observation:** The highest value for **{variable}** is observed in **{max_row['country']}** (represented by the **darkest shade**).
+        * **Minimum Observation:** The lowest value is observed in **{min_row['country']}** (represented by the **lightest shade**).
+        
+        * **Hypothesis Generation:** The strong visual contrast between these extremes suggests that geographical, economic, or policy factors may be significantly driving the variance in **{variable}**. 
         * **Future Work:** Further statistical analysis (e.g., spatial autocorrelation or regression) is warranted to test for significant regional dependencies and to formally assess the drivers of the observed high-value clusters.
         """
     )
@@ -156,7 +155,7 @@ if file:
         f"""
         ### Color Scale Guide  
         The color scale reflects the magnitude of **{variable}**. The scale used is **'Viridis'**, a perceptually uniform colormap:  
-        * **Darker Tones:** Indicate **Higher Values** of **{variable}**.  
-        * **Lighter Tones:** Indicate **Lower Values** of **{variable}**.  
+        * **Darker Tones:** Indicate **Higher Values**.  
+        * **Lighter Tones:** Indicate **Lower Values**.  
         """
     )
