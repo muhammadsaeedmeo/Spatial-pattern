@@ -9,26 +9,28 @@ CORRECT_PASSWORD = "1992"
 
 # ============================================================
 # ISO NORMALIZATION + Turkey override
+# Returns alpha_3 for mapping and alpha_2 for short labels
 # ============================================================
 def normalize_country(name: str):
     """
-    Cleans and standardizes country names to their ISO 3166-1 alpha-3 codes.
-    Handles Unicode characters and provides an override for 'Turkey'/'Türkiye'.
+    Cleans and standardizes country names. 
+    Returns a tuple: (alpha_3 code for map, alpha_2 code for labels).
     """
     clean = unicodedata.normalize("NFKD", str(name)).strip()
     clean = clean.replace("\u200b", "").replace("\uFEFF", "")
     clean = clean.replace("\xa0", " ")
     clean = clean.strip()
-
-    # Hard override for all Turkey/Türkiye variants
+    
+    # Check for hard override first
     if clean.lower() in ["turkey", "türkiye", "turkiye"]:
-        return "TUR"
-
+        return "TUR", "TR"
+        
     try:
-        # Use pycountry to look up the name and return the 3-letter code
-        return pycountry.countries.lookup(clean).alpha_3
+        country = pycountry.countries.lookup(clean)
+        # Return both the 3-letter code (for location) and the 2-letter code (for text)
+        return country.alpha_3, country.alpha_2
     except:
-        return None
+        return None, None
 
 # ============================================================
 # PASSWORD CHECK FUNCTION
@@ -37,10 +39,8 @@ def check_password():
     """Returns True if the user enters the correct password, False otherwise."""
     st.title("🔐 Choropleth Map Access")
     
-    # Use st.empty to hold the password input for clean removal/replacement
     password_placeholder = st.empty()
     
-    # Password input field
     password = password_placeholder.text_input(
         "Enter password to access the app:", 
         type="password", 
@@ -48,17 +48,15 @@ def check_password():
     )
     
     if password == CORRECT_PASSWORD:
-        # Clear the password input and message on successful login
         password_placeholder.empty()
         return True
-    elif password: # Only show error if the user has actually typed something and it's wrong
+    elif password:
         st.error("🚨 Incorrect password.")
     
-    # If not logged in, ensure nothing else is displayed
     return False
 
 # ============================================================
-# STREAMLIT APP LOGIC (Only runs if password is correct)
+# STREAMLIT APP LOGIC
 # ============================================================
 if check_password():
     st.title("🗺️ Choropleth Map for Country-Level Variables")
@@ -77,8 +75,12 @@ if check_password():
             st.error("Dataset must contain a 'country' column.")
             st.stop()
 
-        # Resolve ISO3
-        df["iso3"] = df["country"].apply(normalize_country)
+        # Resolve ISO3 and ISO2
+        # Apply the function and unpack the tuple results into two new columns
+        df[['iso3', 'iso2_label']] = df["country"].apply(
+            lambda x: pd.Series(normalize_country(x))
+        )
+        
         unresolved = df[df["iso3"].isna()]["country"].unique().tolist()
 
         if unresolved:
@@ -99,7 +101,7 @@ if check_password():
         # Color picker for country name labels for visibility
         label_color = st.color_picker("Select country label color:", "#FFFFFF")
 
-        # ---
+        ---
         
         ## 🌍 Choropleth Map Display
 
@@ -122,20 +124,21 @@ if check_password():
             coastlinecolor="gray",
         )
 
-        # Country text labels
+        # Country text labels (using the new 'iso2_label' column)
         for _, row in df_clean.iterrows():
             fig.add_scattergeo(
                 locations=[row["iso3"]],
-                text=row["country"],
+                # Use the short ISO-2 code for the on-map text
+                text=row["iso2_label"], 
                 mode="text",
                 textposition="middle center",
-                textfont=dict(color=label_color, size=12),
+                textfont=dict(color=label_color, size=10), # Reduced font size for better fit
                 showlegend=False
             )
 
         st.plotly_chart(fig, use_container_width=True)
 
-        # ---
+        ---
         
         ## 💡 Interpretation
 
@@ -143,6 +146,7 @@ if check_password():
         # Automatic one-line interpretation
         # ============================================================
         if not df_clean.empty and variable in df_clean.columns:
+            # Note: idxmax/idxmin might return the first max/min if duplicates exist
             max_row = df_clean.loc[df_clean[variable].idxmax()]
             min_row = df_clean.loc[df_clean[variable].idxmin()]
 
