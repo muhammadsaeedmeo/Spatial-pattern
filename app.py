@@ -11,6 +11,10 @@ CORRECT_PASSWORD = "1992"
 # ISO NORMALIZATION + Turkey override
 # ============================================================
 def normalize_country(name: str):
+    """
+    Cleans and standardizes country names to their ISO 3166-1 alpha-3 codes.
+    Handles Unicode characters and provides an override for 'Turkey'/'Türkiye'.
+    """
     clean = unicodedata.normalize("NFKD", str(name)).strip()
     clean = clean.replace("\u200b", "").replace("\uFEFF", "")
     clean = clean.replace("\xa0", " ")
@@ -21,6 +25,7 @@ def normalize_country(name: str):
         return "TUR"
 
     try:
+        # Use pycountry to look up the name and return the 3-letter code
         return pycountry.countries.lookup(clean).alpha_3
     except:
         return None
@@ -30,9 +35,9 @@ def normalize_country(name: str):
 # ============================================================
 def check_password():
     """Returns True if the user enters the correct password, False otherwise."""
-    st.title("Choropleth Map Access")
+    st.title("🔐 Choropleth Map Access")
     
-    # Use st.empty to hold the password input, allowing for clean removal/replacement
+    # Use st.empty to hold the password input for clean removal/replacement
     password_placeholder = st.empty()
     
     # Password input field
@@ -49,6 +54,7 @@ def check_password():
     elif password: # Only show error if the user has actually typed something and it's wrong
         st.error("🚨 Incorrect password.")
     
+    # If not logged in, ensure nothing else is displayed
     return False
 
 # ============================================================
@@ -57,7 +63,6 @@ def check_password():
 if check_password():
     st.title("🗺️ Choropleth Map for Country-Level Variables")
     
-    # Use st.sidebar for file uploader to keep the main content clean initially
     file = st.file_uploader("Upload CSV or Excel with a 'country' column")
 
     if file:
@@ -96,7 +101,7 @@ if check_password():
 
         # ---
         
-        ## 🌍 Choropleth Map
+        ## 🌍 Choropleth Map Display
 
         # ============================================================
         # Choropleth
@@ -137,7 +142,7 @@ if check_password():
         # ============================================================
         # Automatic one-line interpretation
         # ============================================================
-        if not df_clean.empty:
+        if not df_clean.empty and variable in df_clean.columns:
             max_row = df_clean.loc[df_clean[variable].idxmax()]
             min_row = df_clean.loc[df_clean[variable].idxmin()]
 
