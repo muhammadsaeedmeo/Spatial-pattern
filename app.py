@@ -23,6 +23,33 @@ def normalize_country(name: str):
         return pycountry.countries.lookup(clean).alpha_3
     except:
         return None
+        
+# ============================================================
+# Helper function to categorize color intensity
+# ============================================================
+def get_color_intensity(value, min_val, max_val):
+    if pd.isna(value):
+        return "N/A"
+    
+    # Normalize value between 0 and 1
+    if max_val == min_val:
+        normalized = 0.5
+    else:
+        normalized = (value - min_val) / (max_val - min_val)
+
+    # Viridis scale: 1 (highest value) is yellow/lightest; 0 (lowest value) is deep purple/darkest
+    # Since higher value (1) is generally interpreted as "more intense" or "darker" in data, 
+    # and Viridis is perceptually uniform, we will use the following categorization:
+    if normalized >= 0.8:
+        return "🔥 High Value (Yellow/Lightest)"
+    elif normalized >= 0.6:
+        return "🟡 Upper Mid-tone"
+    elif normalized >= 0.4:
+        return "🟢 Mid-tone"
+    elif normalized >= 0.2:
+        return "🔵 Lower Mid-tone"
+    else:
+        return "🌑 Low Value (Deep Purple/Darkest)"
 
 # ============================================================
 # STREAMLIT APP
@@ -74,6 +101,10 @@ if file:
     max_row = df_sorted.iloc[0]
     min_row = df_sorted.iloc[-1]
     
+    # Calculate min/max for color hint function
+    min_val = df_clean[variable].min()
+    max_val = df_clean[variable].max()
+
     # ============================================================
     # Choropleth
     # ============================================================
@@ -81,8 +112,8 @@ if file:
     
     # Set up a dynamic subtitle/caption for the plot
     caption_text = (
-        f"**Color Interpretation:** Darker tones (high values) peak at **{max_row['country']}** "
-        f"(Value: {max_row[variable]:.2f}), and lighter tones (low values) bottom out at **{min_row['country']}** "
+        f"**Color Interpretation:** High values (yellow/lightest) peak at **{max_row['country']}** "
+        f"(Value: {max_row[variable]:.2f}), and low values (deep purple/darkest) bottom out at **{min_row['country']}** "
         f"(Value: {min_row[variable]:.2f})."
     )
 
@@ -107,7 +138,6 @@ if file:
         oceancolor="aliceblue"
     )
     
-    # Adjust title position to look better as a combined title/subtitle
     fig.update_layout(
         title={
             'y': 0.95,
@@ -120,42 +150,48 @@ if file:
     st.plotly_chart(fig, use_container_width=True)
     
     # ============================================================
-    # 3. Country Data Table (Sidebar)
+    # 3. Full Country Color and Name List (Below Plot)
     # ============================================================
-    st.sidebar.header("Country Data Table")
-    st.sidebar.markdown(f"**Sorted values for: {variable}**")
-    st.sidebar.dataframe(
-        df_sorted[['country', variable]].rename(columns={variable: "Value"}),
+    st.markdown("---")
+    st.header("📋 Full Country Value and Color Guide")
+    st.markdown(
+        """
+        The table below provides the **country name** and its **corresponding value** for the variable, 
+        sorted by magnitude. The **Color Intensity** column offers a quick visual cue, 
+        linking the value to its shade on the map (using the **Viridis** scale).
+        """
+    )
+
+    # Add the color intensity column
+    df_sorted['Color Intensity'] = df_sorted[variable].apply(
+        lambda x: get_color_intensity(x, min_val, max_val)
+    )
+
+    # Display the full list in the main area
+    st.dataframe(
+        df_sorted[['country', variable, 'Color Intensity']].rename(
+            columns={'country': 'Country Name', variable: 'Value'}
+        ),
         use_container_width=True,
         hide_index=True
     )
+    st.markdown("---")
 
     # ============================================================
     # 4. Clearer Interpretation (Research Article Perspective)
     # ============================================================
-    st.markdown("---")
-    st.header("🔍 Interpretation of Results")
+    st.header("🔍 Research Article Interpretation")
     
-    st.markdown("### Research Article Perspective (Discussion/Results Section)")
+    st.markdown("### Discussion/Results Section Summary")
     
     st.markdown(
         f"""
         The choropleth map provides compelling evidence regarding the spatial distribution of **{variable}**. 
-        From a research standpoint, the color gradation—where **darker tones correlate with higher values** and **lighter tones with lower values**—reveals distinct regional clusters. 
+        From a research standpoint, the color gradation—where **lighter tones (yellow) correlate with higher values** and **darker tones (purple) with lower values**—reveals distinct regional clusters. 
         
-        * **Maximum Observation:** The highest value for **{variable}** is observed in **{max_row['country']}** (represented by the **darkest shade**).
-        * **Minimum Observation:** The lowest value is observed in **{min_row['country']}** (represented by the **lightest shade**).
+        * **Maximum Observation:** The highest value for **{variable}** is observed in **{max_row['Country Name']}** (Value: {max_row['Value']:.2f}).
+        * **Minimum Observation:** The lowest value is observed in **{min_row['Country Name']}** (Value: {min_row['Value']:.2f}).
         
-        * **Hypothesis Generation:** The strong visual contrast between these extremes suggests that geographical, economic, or policy factors may be significantly driving the variance in **{variable}**. 
-        * **Future Work:** Further statistical analysis (e.g., spatial autocorrelation or regression) is warranted to test for significant regional dependencies and to formally assess the drivers of the observed high-value clusters.
-        """
-    )
-    
-    st.markdown(
-        f"""
-        ### Color Scale Guide  
-        The color scale reflects the magnitude of **{variable}**. The scale used is **'Viridis'**, a perceptually uniform colormap:  
-        * **Darker Tones:** Indicate **Higher Values**.  
-        * **Lighter Tones:** Indicate **Lower Values**.  
+        Further statistical analysis (e.g., spatial autocorrelation or regression) is warranted to test for significant regional dependencies and to formally assess the drivers of the observed high-value clusters.
         """
     )
