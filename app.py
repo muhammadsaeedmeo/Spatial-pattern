@@ -30,9 +30,10 @@ def normalize_country(name: str):
     try:
         country = pycountry.countries.lookup(clean)
         # Return both the 3-letter code (for location) and the 2-letter code (for short text)
-        return country.alpha_3, country.alpha_2
+        # Also return the official country name for the legend
+        return country.alpha_3, country.alpha_2, country.name
     except:
-        return None, None
+        return None, None, None
 
 # ============================================================
 # PASSWORD CHECK FUNCTION
@@ -41,7 +42,6 @@ def check_password():
     """Returns True if the user enters the correct password, False otherwise."""
     st.title("🔐 Spatial Distribution Pattern Access")
     
-    # Use st.empty for clean removal of the input field upon successful login
     password_placeholder = st.empty()
     
     password = password_placeholder.text_input(
@@ -62,7 +62,6 @@ def check_password():
 # STREAMLIT APP LOGIC
 # ============================================================
 if check_password():
-    # Updated map name here
     st.title("🗺️ Spatial Distribution Pattern")
     
     file = st.file_uploader("Upload CSV or Excel with a 'country' column")
@@ -79,9 +78,9 @@ if check_password():
             st.error("Dataset must contain a 'country' column.")
             st.stop()
 
-        # Resolve ISO3 and ISO2
-        # Apply the function and unpack the tuple results into two new columns
-        df[['iso3', 'iso2_label']] = df["country"].apply(
+        # Resolve ISO3, ISO2, and Full Name
+        # Apply the function and unpack the tuple results into three new columns
+        df[['iso3', 'iso2_label', 'country_name_official']] = df["country"].apply(
             lambda x: pd.Series(normalize_country(x))
         )
         
@@ -136,7 +135,7 @@ if check_password():
                 text=row["iso2_label"], 
                 mode="text",
                 textposition="middle center",
-                textfont=dict(color=label_color, size=10), # Reduced font size for better fit
+                textfont=dict(color=label_color, size=10),
                 showlegend=False
             )
 
@@ -144,11 +143,12 @@ if check_password():
 
         st.markdown("---") 
         
-        st.markdown("## 💡 Interpretation")
-
+        ## 💡 Interpretation and Legend
+        
         # ============================================================
         # Automatic one-line interpretation
         # ============================================================
+        st.markdown("## 💡 Interpretation")
         if not df_clean.empty and variable in df_clean.columns:
             max_row = df_clean.loc[df_clean[variable].idxmax()]
             min_row = df_clean.loc[df_clean[variable].idxmin()]
@@ -168,4 +168,29 @@ if check_password():
             The color scale reflects the magnitude of **{variable}**.  
             **Darker tones** (closer to yellow/white) indicate **higher values**, whereas **lighter tones** (closer to black/purple) indicate **lower values** in the 'Inferno' color scale.  
             """
+        )
+
+        st.markdown("---") 
+
+        # ============================================================
+        # Country Code Legend (New Feature)
+        # ============================================================
+        st.markdown("## 🗺️ Country Code Legend")
+        st.markdown("Use this table to translate the **2-Letter Codes** displayed on the map.")
+        
+        # Create a DataFrame for the legend
+        legend_df = df_clean[["iso2_label", "country", "country_name_official"]].drop_duplicates(subset=["iso2_label"]).sort_values(by="country")
+        
+        # Rename columns for display
+        legend_df = legend_df.rename(columns={
+            "iso2_label": "Map Code (ISO 2)",
+            "country": "Original Name",
+            "country_name_official": "Official Name",
+        })
+        
+        # Display the table
+        st.dataframe(
+            legend_df, 
+            hide_index=True, 
+            use_container_width=True
         )
