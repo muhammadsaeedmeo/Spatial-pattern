@@ -16,18 +16,20 @@ def normalize_country(name: str):
     Cleans and standardizes country names. 
     Returns a tuple: (alpha_3 code for map, alpha_2 code for labels).
     """
+    # 1. Standardize and clean the input string
     clean = unicodedata.normalize("NFKD", str(name)).strip()
     clean = clean.replace("\u200b", "").replace("\uFEFF", "")
     clean = clean.replace("\xa0", " ")
     clean = clean.strip()
     
-    # Check for hard override first
+    # 2. Hard override for specific names
     if clean.lower() in ["turkey", "türkiye", "turkiye"]:
         return "TUR", "TR"
         
+    # 3. Use pycountry to look up standard codes
     try:
         country = pycountry.countries.lookup(clean)
-        # Return both the 3-letter code (for location) and the 2-letter code (for text)
+        # Return both the 3-letter code (for location) and the 2-letter code (for short text)
         return country.alpha_3, country.alpha_2
     except:
         return None, None
@@ -37,8 +39,9 @@ def normalize_country(name: str):
 # ============================================================
 def check_password():
     """Returns True if the user enters the correct password, False otherwise."""
-    st.title("🔐 Choropleth Map Access")
+    st.title("🔐 Spatial Distribution Pattern Access")
     
+    # Use st.empty for clean removal of the input field upon successful login
     password_placeholder = st.empty()
     
     password = password_placeholder.text_input(
@@ -59,7 +62,8 @@ def check_password():
 # STREAMLIT APP LOGIC
 # ============================================================
 if check_password():
-    st.title("🗺️ Choropleth Map for Country-Level Variables")
+    # Updated map name here
+    st.title("🗺️ Spatial Distribution Pattern")
     
     file = st.file_uploader("Upload CSV or Excel with a 'country' column")
 
@@ -101,9 +105,9 @@ if check_password():
         # Color picker for country name labels for visibility
         label_color = st.color_picker("Select country label color:", "#FFFFFF")
 
-        ---
+        st.markdown("---") 
         
-        ## 🌍 Choropleth Map Display
+        st.markdown("## 🌍 Choropleth Map Display")
 
         # ============================================================
         # Choropleth
@@ -124,7 +128,7 @@ if check_password():
             coastlinecolor="gray",
         )
 
-        # Country text labels (using the new 'iso2_label' column)
+        # Country text labels (using the new 'iso2_label' column for shorter text)
         for _, row in df_clean.iterrows():
             fig.add_scattergeo(
                 locations=[row["iso3"]],
@@ -138,15 +142,14 @@ if check_password():
 
         st.plotly_chart(fig, use_container_width=True)
 
-        ---
+        st.markdown("---") 
         
-        ## 💡 Interpretation
+        st.markdown("## 💡 Interpretation")
 
         # ============================================================
         # Automatic one-line interpretation
         # ============================================================
         if not df_clean.empty and variable in df_clean.columns:
-            # Note: idxmax/idxmin might return the first max/min if duplicates exist
             max_row = df_clean.loc[df_clean[variable].idxmax()]
             min_row = df_clean.loc[df_clean[variable].idxmin()]
 
