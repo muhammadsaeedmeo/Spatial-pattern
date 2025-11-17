@@ -3,7 +3,7 @@ import pandas as pd
 import pycountry
 import plotly.express as px
 import unicodedata
-import altair as alt # Added for the custom legend
+import altair as alt
 
 # --- CONFIGURATION ---
 PASSWORD = "1992"
@@ -68,7 +68,7 @@ if file:
     numeric_cols = df_clean.select_dtypes(include=["float64", "int64"]).columns.tolist()
     variable = st.selectbox("Select variable to map:", numeric_cols)
 
-    # Color picker for country name labels for visibility
+    # Color picker for country name labels for visibility (kept for potential future use, though labels are removed)
     label_color = st.color_picker("Select country label color:", "#FFFFFF")
     
     # ============================================================
@@ -82,10 +82,10 @@ if file:
         color=variable,
         hover_name="country",
         projection="natural earth",
-        # --- 2. HD/Fine-Tune: Changed color scale and template ---
-        color_continuous_scale="Viridis", # Perceptually uniform for better quality
-        template="plotly_white", # Clean, high-contrast background
-        height=600, # Increased height for better visibility
+        # HD/Fine-Tune: Changed color scale and template
+        color_continuous_scale="Viridis",
+        template="plotly_white",
+        height=600,
     )
 
     fig.update_geos(
@@ -93,31 +93,29 @@ if file:
         countrycolor="black",
         showcoastlines=True,
         coastlinecolor="gray",
-        # Added outline to ocean for a cleaner look
         oceancolor="aliceblue"
     )
 
-    # Country text labels
-    for _, row in df_clean.iterrows():
-        fig.add_scattergeo(
-            locations=[row["iso3"]],
-            text=row["country"],
-            mode="text",
-            textposition="middle center",
-            textfont=dict(color=label_color, size=10, family='Arial'), # Adjusted font size/family
-            showlegend=False
-        )
+    # 🛑 REMOVED: Country text labels on the map
+    # for _, row in df_clean.iterrows():
+    #     fig.add_scattergeo(
+    #         locations=[row["iso3"]],
+    #         text=row["country"],
+    #         mode="text",
+    #         textposition="middle center",
+    #         textfont=dict(color=label_color, size=10, family='Arial'),
+    #         showlegend=False
+    #     )
 
     st.plotly_chart(fig, use_container_width=True)
     
     # ============================================================
-    # 3. Country-Color Legend
+    # 3. Country-Color Legend (Kept in sidebar as the definitive reference)
     # ============================================================
     st.sidebar.header("Country Color Legend")
     st.sidebar.markdown(f"**Color represents the value of: {variable}**")
 
     # Create a small scatter plot in sidebar to act as a legend
-    # Altair is often clearer for custom legends
     chart_legend = alt.Chart(df_clean).mark_point().encode(
         y=alt.Y('country', title="Country"),
         color=alt.Color(variable, scale=alt.Scale(range=px.colors.sequential.Viridis)),
@@ -126,7 +124,7 @@ if file:
     
     st.sidebar.altair_chart(chart_legend, use_container_width=True)
     
-    # Also provide a simplified list for quick reference
+    # Also provide a simplified list for quick reference (This acts as the "plot at the bottom" text)
     df_sorted = df_clean.sort_values(by=variable, ascending=False).reset_index(drop=True)
     st.sidebar.dataframe(
         df_sorted[['country', variable]].rename(columns={variable: "Value"}),
