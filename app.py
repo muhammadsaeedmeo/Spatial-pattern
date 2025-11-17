@@ -68,11 +68,11 @@ if file:
     numeric_cols = df_clean.select_dtypes(include=["float64", "int64"]).columns.tolist()
     variable = st.selectbox("Select variable to map:", numeric_cols)
 
-    # Color picker for country name labels for visibility (kept for potential future use, though labels are removed)
+    # Color picker for country name labels for visibility (not used on map, but kept)
     label_color = st.color_picker("Select country label color:", "#FFFFFF")
     
     # ============================================================
-    # Choropleth (with HD/Fine-Tune adjustments)
+    # Choropleth
     # ============================================================
     st.subheader(f"Map Visualization of **{variable}**")
     
@@ -80,9 +80,9 @@ if file:
         df_clean,
         locations="iso3",
         color=variable,
+        # Hover text is crucial for identifying countries without cluttering the map
         hover_name="country",
         projection="natural earth",
-        # HD/Fine-Tune: Changed color scale and template
         color_continuous_scale="Viridis",
         template="plotly_white",
         height=600,
@@ -96,36 +96,15 @@ if file:
         oceancolor="aliceblue"
     )
 
-    # 🛑 REMOVED: Country text labels on the map
-    # for _, row in df_clean.iterrows():
-    #     fig.add_scattergeo(
-    #         locations=[row["iso3"]],
-    #         text=row["country"],
-    #         mode="text",
-    #         textposition="middle center",
-    #         textfont=dict(color=label_color, size=10, family='Arial'),
-    #         showlegend=False
-    #     )
-
     st.plotly_chart(fig, use_container_width=True)
     
     # ============================================================
-    # 3. Country-Color Legend (Kept in sidebar as the definitive reference)
+    # 3. Country-Color Legend/Data Table (Sidebar)
     # ============================================================
-    st.sidebar.header("Country Color Legend")
-    st.sidebar.markdown(f"**Color represents the value of: {variable}**")
-
-    # Create a small scatter plot in sidebar to act as a legend
-    chart_legend = alt.Chart(df_clean).mark_point().encode(
-        y=alt.Y('country', title="Country"),
-        color=alt.Color(variable, scale=alt.Scale(range=px.colors.sequential.Viridis)),
-        tooltip=['country', variable]
-    ).properties(height=200).interactive()
-    
-    st.sidebar.altair_chart(chart_legend, use_container_width=True)
-    
-    # Also provide a simplified list for quick reference (This acts as the "plot at the bottom" text)
     df_sorted = df_clean.sort_values(by=variable, ascending=False).reset_index(drop=True)
+    
+    st.sidebar.header("Country Data Table")
+    st.sidebar.markdown(f"**Sorted values for: {variable}**")
     st.sidebar.dataframe(
         df_sorted[['country', variable]].rename(columns={variable: "Value"}),
         use_container_width=True,
@@ -133,24 +112,33 @@ if file:
     )
 
     # ============================================================
-    # 4. Clearer Interpretation (Research Article Perspective)
+    # 4. Clearer Interpretation (Including Country-Color Mapping)
     # ============================================================
     st.markdown("---")
     st.header("🔍 Interpretation of Results")
     
     # --- Automatic Interpretation ---
-    max_row = df_clean.loc[df_clean[variable].idxmax()]
-    min_row = df_clean.loc[df_clean[variable].idxmin()]
+    max_row = df_sorted.iloc[0]
+    min_row = df_sorted.iloc[-1]
     
     st.markdown("### Geographical Distribution Summary")
     st.info(
-        f"The visualization clearly indicates a significant geographical disparity in **{variable}**. "
-        f"**{max_row['country']}** (Value: **{max_row[variable]:.2f}**) exhibits the highest concentration or level of this variable, "
-        f"represented by the **darkest shade** on the map. "
-        f"Conversely, **{min_row['country']}** (Value: **{min_row[variable]:.2f}**) records the lowest value, "
-        f"marked by the **lightest shade**, highlighting a crucial point of minimum observation in the dataset."
+        f"The visualization shows a strong correlation between color and value, where the **darkest shade** represents the maximum value and the **lightest shade** represents the minimum value."
     )
     
+    # --- Explicit Color-Country Mapping (The requested "Legend at the bottom") ---
+    st.markdown("### 🎨 Color-Country Association Guide")
+    st.markdown(
+        f"""
+        For immediate visual understanding, here is how the colors relate to the key countries, based on the **Viridis** color scale:
+        
+        * **Highest Value (Darkest Purple/Yellow):** **{max_row['country']}** (Value: **{max_row[variable]:.2f}**).
+        * **Lowest Value (Lightest Yellow/Green):** **{min_row['country']}** (Value: **{min_row[variable]:.2f}**).
+        
+        Please mouse over any country on the map to instantly see its name and precise value. The full sorted list of countries and their values is available in the **sidebar**.
+        """
+    )
+
     # --- Research Article Perspective ---
     st.markdown("### Research Article Perspective (Discussion/Results Section)")
     
