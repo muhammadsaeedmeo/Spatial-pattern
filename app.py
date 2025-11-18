@@ -8,7 +8,7 @@ import unicodedata
 CORRECT_PASSWORD = "1992"
 
 # ============================================================
-# ISO NORMALIZATION + Turkey override
+# ISO NORMALIZATION + Turkey override + Enhanced Recognition
 # Returns alpha_3, alpha_2, and official country name
 # ============================================================
 def normalize_country(name: str):
@@ -25,13 +25,60 @@ def normalize_country(name: str):
     # 2. Hard override for specific names
     if clean.lower() in ["turkey", "türkiye", "turkiye"]:
         return "TUR", "TR", "Turkey"
+    
+    # 3. Common abbreviations mapping
+    abbreviations = {
+        "uk": "United Kingdom",
+        "usa": "United States",
+        "us": "United States",
+        "uae": "United Arab Emirates",
+        "drc": "Democratic Republic of the Congo",
+        "car": "Central African Republic",
+        "png": "Papua New Guinea",
+        "roc": "Republic of the Congo",
+        "prc": "China",
+        "dprk": "North Korea",
+        "rok": "South Korea",
+        "ussr": "Russia",
+        "nl": "Netherlands",
+        "nz": "New Zealand",
+        "sa": "Saudi Arabia",
+        "rsa": "South Africa"
+    }
+    
+    # Check if input is a known abbreviation
+    if clean.lower() in abbreviations:
+        clean = abbreviations[clean.lower()]
         
-    # 3. Use pycountry to look up standard codes
+    # 4. Use pycountry to look up standard codes
     try:
         country = pycountry.countries.lookup(clean)
-        # Return alpha_3, alpha_2, and the official name
         return country.alpha_3, country.alpha_2, country.name
     except:
+        # 5. If lookup fails, try to extract potential abbreviation/short form
+        # Try first word if multi-word
+        words = clean.split()
+        if len(words) > 1:
+            # Try first word
+            try:
+                country = pycountry.countries.lookup(words[0])
+                return country.alpha_3, country.alpha_2, country.name
+            except:
+                pass
+            
+            # Try last word
+            try:
+                country = pycountry.countries.lookup(words[-1])
+                return country.alpha_3, country.alpha_2, country.name
+            except:
+                pass
+        
+        # 6. Try fuzzy matching by checking if clean name is contained in any country name
+        clean_lower = clean.lower()
+        for country in pycountry.countries:
+            if clean_lower in country.name.lower() or country.name.lower() in clean_lower:
+                return country.alpha_3, country.alpha_2, country.name
+        
         return None, None, None
 
 # ============================================================
