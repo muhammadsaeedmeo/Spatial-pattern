@@ -312,50 +312,141 @@ if check_password():
             """)
 
         # ============================================================
-        # TOP RANKINGS (Panel-Aware)
+        # COMPLETE RANKINGS TABLE (Panel-Aware)
         # ============================================================
-        st.markdown("### 🏆 Top 10 Rankings")
+        st.markdown("### 🏆 Complete Country Rankings")
         
         # For panel data, ensure unique countries in ranking
         if is_panel:
             st.info(f"📅 Rankings for {selected_period} (each country appears once)")
         
+        # Create complete ranking
         df_ranked = df_clean.sort_values(by=variable, ascending=False).reset_index(drop=True)
-        df_top_10 = df_ranked.head(10).copy()
-        df_top_10['Rank'] = range(1, len(df_top_10) + 1)
+        df_ranked['Rank'] = range(1, len(df_ranked) + 1)
         
-        # Create a clean table
-        display_df = df_top_10[['Rank', 'country_name_official', variable]].copy()
-        display_df.columns = ['Rank', 'Country', variable.replace('_', ' ').title()]
-        display_df[variable.replace('_', ' ').title()] = display_df[variable.replace('_', ' ').title()].round(2)
+        # Display options
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            show_option = st.radio(
+                "Display:",
+                ["Top 10", "Top 20", "All Countries"],
+                horizontal=True,
+                key="display_option"
+            )
+        with col2:
+            highlight_top = st.checkbox("Highlight Top 3", value=True)
         
-        st.dataframe(display_df, hide_index=True, use_container_width=True)
+        # Determine how many to show
+        if show_option == "Top 10":
+            df_display = df_ranked.head(10).copy()
+        elif show_option == "Top 20":
+            df_display = df_ranked.head(20).copy()
+        else:
+            df_display = df_ranked.copy()
+        
+        # Create a clean table with formatting
+        display_df = df_display[['Rank', 'country_name_official', variable, 'iso2_label']].copy()
+        display_df.columns = ['Rank', 'Country', variable.replace('_', ' ').title(), 'ISO Code']
+        display_df[variable.replace('_', ' ').title()] = display_df[variable.replace('_', ' ').title()].round(3)
+        
+        # Style the dataframe with highlighting
+        def highlight_ranks(row):
+            if highlight_top and row['Rank'] == 1:
+                return ['background-color: #FFD700; font-weight: bold'] * len(row)  # Gold
+            elif highlight_top and row['Rank'] == 2:
+                return ['background-color: #C0C0C0; font-weight: bold'] * len(row)  # Silver
+            elif highlight_top and row['Rank'] == 3:
+                return ['background-color: #CD7F32; font-weight: bold'] * len(row)  # Bronze
+            else:
+                return [''] * len(row)
+        
+        styled_df = display_df.style.apply(highlight_ranks, axis=1)
+        
+        st.dataframe(styled_df, hide_index=True, use_container_width=True, height=400)
+        
+        # Summary stats below table
+        st.markdown(f"""
+        **Table Summary:** Showing {len(df_display)} of {len(df_ranked)} countries ranked by {variable.replace('_', ' ')}.
+        """)
+        
+        # Show bottom 5 in an expander
+        if len(df_ranked) > 10:
+            with st.expander("📉 View Bottom 5 Countries"):
+                df_bottom = df_ranked.tail(5).copy()
+                bottom_display = df_bottom[['Rank', 'country_name_official', variable, 'iso2_label']].copy()
+                bottom_display.columns = ['Rank', 'Country', variable.replace('_', ' ').title(), 'ISO Code']
+                bottom_display[variable.replace('_', ' ').title()] = bottom_display[variable.replace('_', ' ').title()].round(3)
+                st.dataframe(bottom_display, hide_index=True, use_container_width=True)
 
         # ============================================================
-        # HORIZONTAL BAR CHART FOR TOP 10
+        # DUAL VIEW: VISUAL COMPARISON
         # ============================================================
-        st.markdown("### 📊 Top 10 Visual Comparison")
+        st.markdown("### 📊 Visual Comparison")
         
-        fig_bar = px.bar(
-            df_top_10,
-            y='country_name_official',
-            x=variable,
-            orientation='h',
-            color=variable,
-            color_continuous_scale=color_scheme,
-            labels={variable: variable.replace('_', ' ').title(),
-                   'country_name_official': 'Country'}
-        )
+        # Create tabs for different visualizations
+        tab1, tab2 = st.tabs(["📊 Horizontal Bar Chart", "📈 Distribution Plot"])
         
-        fig_bar.update_layout(
-            yaxis={'categoryorder': 'total ascending'},
-            height=400,
-            showlegend=False,
-            title={'text': f'Top 10 Countries by {variable.replace("_", " ").title()}',
-                  'x': 0.5, 'xanchor': 'center'}
-        )
+        with tab1:
+            # Horizontal bar chart for top countries
+            n_bars = min(15, len(df_ranked))
+            df_for_bar = df_ranked.head(n_bars).copy()
+            
+            fig_bar = px.bar(
+                df_for_bar,
+                y='country_name_official',
+                x=variable,
+                orientation='h',
+                color=variable,
+                color_continuous_scale=color_scheme,
+                labels={variable: variable.replace('_', ' ').title(),
+                       'country_name_official': 'Country'},
+                text=variable
+            )
+            
+            fig_bar.update_traces(texttemplate='%{text:.2f}', textposition='outside')
+            fig_bar.update_layout(
+                yaxis={'categoryorder': 'total ascending'},
+                height=max(400, n_bars * 30),
+                showlegend=False,
+                title={'text': f'Top {n_bars} Countries by {variable.replace("_", " ").title()}',
+                      'x': 0.5, 'xanchor': 'center'},
+                xaxis_title=variable.replace('_', ' ').title(),
+                yaxis_title=''
+            )
+            
+            st.plotly_chart(fig_bar, use_container_width=True)
         
-        st.plotly_chart(fig_bar, use_container_width=True)
+        with tab2:
+            # Distribution histogram
+            fig_hist = px.histogram(
+                df_ranked,
+                x=variable,
+                nbins=30,
+                color_discrete_sequence=['#636EFA'],
+                labels={variable: variable.replace('_', ' ').title()}
+            )
+            
+            fig_hist.update_layout(
+                title={'text': f'Distribution of {variable.replace("_", " ").title()} Across Countries',
+                      'x': 0.5, 'xanchor': 'center'},
+                xaxis_title=variable.replace('_', ' ').title(),
+                yaxis_title='Frequency (Number of Countries)',
+                height=400,
+                showlegend=False
+            )
+            
+            # Add vertical lines for mean and median
+            mean_val = df_ranked[variable].mean()
+            median_val = df_ranked[variable].median()
+            
+            fig_hist.add_vline(x=mean_val, line_dash="dash", line_color="red", 
+                              annotation_text=f"Mean: {mean_val:.2f}", 
+                              annotation_position="top")
+            fig_hist.add_vline(x=median_val, line_dash="dash", line_color="green", 
+                              annotation_text=f"Median: {median_val:.2f}", 
+                              annotation_position="bottom")
+            
+            st.plotly_chart(fig_hist, use_container_width=True)
 
         st.markdown("---")
 
@@ -396,12 +487,12 @@ if check_password():
             )
         
         with col2:
-            # Download rankings
-            ranking_csv = display_df.to_csv(index=False).encode('utf-8')
+            # Download rankings (complete)
+            ranking_csv = df_ranked[['Rank', 'country_name_official', variable, 'iso2_label']].to_csv(index=False).encode('utf-8')
             st.download_button(
-                label="📥 Download Rankings (CSV)",
+                label="📥 Download Complete Rankings (CSV)",
                 data=ranking_csv,
-                file_name=f"rankings_{variable}.csv",
+                file_name=f"complete_rankings_{variable}_{selected_period if is_panel else 'all'}.csv",
                 mime="text/csv"
             )
 
