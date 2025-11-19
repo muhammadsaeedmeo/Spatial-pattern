@@ -115,40 +115,38 @@ def aggregate_data(df, variable, aggregation_method):
     Aggregate data based on selected method
     """
     if aggregation_method == "Total Sum":
-        aggregated = df.groupby('country_name_official', as_index=False).agg({
+        aggregated = df.groupby('country', as_index=False).agg({
             variable: 'sum',
-            'iso3': 'first',
-            'iso2_label': 'first',
-            'country': 'first'
         })
+        # Get the first occurrence of each country for additional info
+        first_occurrence = df.groupby('country').first().reset_index()
+        aggregated = pd.merge(aggregated, first_occurrence[['country']], on='country', how='left')
         aggregated.rename(columns={variable: f'{variable}_total'}, inplace=True)
         return aggregated, f'{variable}_total'
     
     elif aggregation_method == "Average":
-        aggregated = df.groupby('country_name_official', as_index=False).agg({
+        aggregated = df.groupby('country', as_index=False).agg({
             variable: 'mean',
-            'iso3': 'first',
-            'iso2_label': 'first',
-            'country': 'first'
         })
+        first_occurrence = df.groupby('country').first().reset_index()
+        aggregated = pd.merge(aggregated, first_occurrence[['country']], on='country', how='left')
         aggregated.rename(columns={variable: f'{variable}_avg'}, inplace=True)
         return aggregated, f'{variable}_avg'
     
     elif aggregation_method == "Maximum Value":
-        aggregated = df.groupby('country_name_official', as_index=False).agg({
+        aggregated = df.groupby('country', as_index=False).agg({
             variable: 'max',
-            'iso3': 'first',
-            'iso2_label': 'first',
-            'country': 'first'
         })
+        first_occurrence = df.groupby('country').first().reset_index()
+        aggregated = pd.merge(aggregated, first_occurrence[['country']], on='country', how='left')
         aggregated.rename(columns={variable: f'{variable}_max'}, inplace=True)
         return aggregated, f'{variable}_max'
     
     elif aggregation_method == "Latest Year":
         # Get the most recent year for each country
         time_col = [col for col in df.columns if col.lower() in ['year', 'time', 'date', 'period']][0]
-        latest_years = df.groupby('country_name_official')[time_col].max().reset_index()
-        aggregated = pd.merge(latest_years, df, on=['country_name_official', time_col], how='left')
+        latest_years = df.groupby('country')[time_col].max().reset_index()
+        aggregated = pd.merge(latest_years, df, on=['country', time_col], how='left')
         return aggregated, variable
 
 # ============================================================
@@ -207,6 +205,16 @@ if check_password():
         time_cols = [col for col in df.columns if col.lower() in ['year', 'time', 'date', 'period']]
         is_panel = len(time_cols) > 0
         
+        # Select variable FIRST for all cases
+        numeric_cols = df.select_dtypes(include=["float64", "int64"]).columns.tolist()
+        numeric_cols = [col for col in numeric_cols if col not in ['iso3', 'iso2_label']]
+
+        if not numeric_cols:
+            st.error("❌ No numeric variables found for mapping.")
+            st.stop()
+
+        variable = st.selectbox("📊 Select variable to visualize:", numeric_cols)
+        
         if is_panel:
             time_col = time_cols[0]
             st.info(f"📊 Panel data detected (Time variable: **{time_col}**)")
@@ -227,24 +235,32 @@ if check_password():
             )
             
             # Aggregate data based on selected method
-            with st.spinner(f"🔄 Calculating {aggregation_method.lower()}..."):
+            with st.spinner(f"🔄 Calculating {aggregation_method.lower()} for {variable}..."):
                 df_aggregated, display_variable = aggregate_data(df, variable, aggregation_method)
                 
+            # Normalize countries on aggregated data
+            with st.spinner("🔍 Normalizing country names..."):
+                df_aggregated[['iso3', 'iso2_label', 'country_name_official']] = df_aggregated["country"].apply(
+                    lambda x: pd.Series(normalize_country(x))
+                )
+            
+            df_clean = df_aggregated.dropna(subset=["iso3"]).copy()
+            
         else:
-            # Cross-sectional data - no aggregation needed
-            df_aggregated = df.copy()
-            display_variable = variable
+            # Cross-sectional data
             aggregation_method = "Single Period"
-            st.info("📊 Cross-sectional data detected")
+            display_variable = variable
+            df_clean = df.copy()
+            
+            # Normalize countries
+            with st.spinner("🔍 Normalizing country names..."):
+                df_clean[['iso3', 'iso2_label', 'country_name_official']] = df_clean["country"].apply(
+                    lambda x: pd.Series(normalize_country(x))
+                )
+            df_clean = df_clean.dropna(subset=["iso3"]).copy()
 
-        # Normalize countries on aggregated data
-        with st.spinner("🔍 Normalizing country names..."):
-            df_aggregated[['iso3', 'iso2_label', 'country_name_official']] = df_aggregated["country"].apply(
-                lambda x: pd.Series(normalize_country(x))
-            )
-        
         # Check unresolved countries
-        unresolved = df_aggregated[df_aggregated["iso3"].isna()]["country"].unique().tolist()
+        unresolved = df_clean[df_clean["iso3"].isna()]["country"].unique().tolist()
         if unresolved:
             with st.expander(f"⚠️ {len(unresolved)} Unrecognized Countries - Click to View"):
                 st.warning("The following countries could not be matched:")
@@ -252,39 +268,11 @@ if check_password():
                     st.write(f"- {country}")
                 st.info("💡 Tip: Check spelling or use standard country names")
 
-        # Drop unresolved
-        df_clean = df_aggregated.dropna(subset=["iso3"]).copy()
-        
         if df_clean.empty:
             st.error("No valid countries found after normalization.")
             st.stop()
 
         st.success(f"✅ Mapped {len(df_clean)} countries successfully")
-
-        # Select variable (for cross-sectional data)
-        if not is_panel:
-            numeric_cols = df_clean.select_dtypes(include=["float64", "int64"]).columns.tolist()
-            numeric_cols = [col for col in numeric_cols if col not in ['iso3', 'iso2_label']]
-            
-            if not numeric_cols:
-                st.error("❌ No numeric variables found for mapping.")
-                st.stop()
-                
-            variable = st.selectbox("📊 Select variable to visualize:", numeric_cols)
-            display_variable = variable
-
-        # For panel data, let user choose variable before aggregation
-        else:
-            numeric_cols = df.select_dtypes(include=["float64", "int64"]).columns.tolist()
-            variable = st.selectbox("📊 Select variable to analyze:", numeric_cols)
-            
-            # Re-aggregate with selected variable
-            with st.spinner(f"🔄 Updating {aggregation_method.lower()} for {variable}..."):
-                df_aggregated, display_variable = aggregate_data(df, variable, aggregation_method)
-                df_aggregated[['iso3', 'iso2_label', 'country_name_official']] = df_aggregated["country"].apply(
-                    lambda x: pd.Series(normalize_country(x))
-                )
-                df_clean = df_aggregated.dropna(subset=["iso3"]).copy()
 
         # Color scheme selection
         color_schemes = ['Viridis', 'Plasma', 'Inferno', 'Magma', 'Blues', 'Reds', 'YlOrRd', 'RdYlGn']
@@ -480,5 +468,138 @@ if check_password():
         **Table Summary:** Showing {len(df_display)} of {len(df_ranked)} countries ranked by {variable.replace('_', ' ')} ({aggregation_method.lower()}).
         """)
 
-        # Rest of your code remains the same for visualizations, downloads, etc.
-        # ... [Keep all the remaining code from your original app]
+        # Show bottom 5 in an expander
+        if len(df_ranked) > 10:
+            with st.expander("📉 View Bottom 5 Countries"):
+                df_bottom = df_ranked.tail(5).copy()
+                bottom_display = df_bottom[['Rank', 'country_name_official', display_variable, 'iso2_label']].copy()
+                bottom_display.columns = ['Rank', 'Country', f"{variable.replace('_', ' ').title()} ({aggregation_method})", 'ISO Code']
+                bottom_display[bottom_display.columns[2]] = bottom_display[bottom_display.columns[2]].round(3)
+                st.dataframe(bottom_display, hide_index=True, use_container_width=True)
+
+        # ============================================================
+        # DUAL VIEW: VISUAL COMPARISON
+        # ============================================================
+        st.markdown("### 📊 Visual Comparison")
+        
+        # Create tabs for different visualizations
+        tab1, tab2 = st.tabs(["📊 Horizontal Bar Chart", "📈 Distribution Plot"])
+        
+        with tab1:
+            # Horizontal bar chart for top countries
+            n_bars = min(15, len(df_ranked))
+            df_for_bar = df_ranked.head(n_bars).copy()
+            
+            fig_bar = px.bar(
+                df_for_bar,
+                y='country_name_official',
+                x=display_variable,
+                orientation='h',
+                color=display_variable,
+                color_continuous_scale=color_scheme,
+                labels={display_variable: f"{variable.replace('_', ' ').title()} ({aggregation_method})",
+                       'country_name_official': 'Country'},
+                text=display_variable
+            )
+            
+            fig_bar.update_traces(texttemplate='%{text:.2f}', textposition='outside')
+            fig_bar.update_layout(
+                yaxis={'categoryorder': 'total ascending'},
+                height=max(400, n_bars * 30),
+                showlegend=False,
+                title={'text': f'Top {n_bars} Countries by {variable.replace("_", " ").title()} ({aggregation_method})',
+                      'x': 0.5, 'xanchor': 'center'},
+                xaxis_title=f"{variable.replace('_', ' ').title()} ({aggregation_method})",
+                yaxis_title=''
+            )
+            
+            st.plotly_chart(fig_bar, use_container_width=True)
+        
+        with tab2:
+            # Distribution histogram
+            fig_hist = px.histogram(
+                df_ranked,
+                x=display_variable,
+                nbins=30,
+                color_discrete_sequence=['#636EFA'],
+                labels={display_variable: f"{variable.replace('_', ' ').title()} ({aggregation_method})"}
+            )
+            
+            fig_hist.update_layout(
+                title={'text': f'Distribution of {variable.replace("_", " ").title()} ({aggregation_method}) Across Countries',
+                      'x': 0.5, 'xanchor': 'center'},
+                xaxis_title=f"{variable.replace('_', ' ').title()} ({aggregation_method})",
+                yaxis_title='Frequency (Number of Countries)',
+                height=400,
+                showlegend=False
+            )
+            
+            # Add vertical lines for mean and median
+            mean_val = df_ranked[display_variable].mean()
+            median_val = df_ranked[display_variable].median()
+            
+            fig_hist.add_vline(x=mean_val, line_dash="dash", line_color="red", 
+                              annotation_text=f"Mean: {mean_val:.2f}", 
+                              annotation_position="top")
+            fig_hist.add_vline(x=median_val, line_dash="dash", line_color="green", 
+                              annotation_text=f"Median: {median_val:.2f}", 
+                              annotation_position="bottom")
+            
+            st.plotly_chart(fig_hist, use_container_width=True)
+
+        st.markdown("---")
+
+        # ============================================================
+        # COUNTRY CODE LEGEND
+        # ============================================================
+        with st.expander("🗺️ Country Code Reference Guide"):
+            st.markdown("**ISO-2 to Country Name Mapping**")
+            
+            legend_df = df_clean[["iso2_label", "country_name_official"]].drop_duplicates(
+                subset=["iso2_label"]
+            ).sort_values(by="country_name_official")
+            
+            # Create multi-column layout for legend
+            n_cols = 3
+            cols = st.columns(n_cols)
+            
+            for idx, (_, row) in enumerate(legend_df.iterrows()):
+                col_idx = idx % n_cols
+                cols[col_idx].write(f"**{row['iso2_label']}**: {row['country_name_official']}")
+
+        # ============================================================
+        # DOWNLOAD OPTIONS
+        # ============================================================
+        st.markdown("---")
+        st.markdown("### 💾 Download Results")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            # Download cleaned data
+            csv = df_clean.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                label="📥 Download Cleaned Data (CSV)",
+                data=csv,
+                file_name=f"spatial_data_{variable}_{aggregation_method.replace(' ', '_')}.csv",
+                mime="text/csv"
+            )
+        
+        with col2:
+            # Download rankings (complete)
+            ranking_csv = df_ranked[['Rank', 'country_name_official', display_variable, 'iso2_label']].to_csv(index=False).encode('utf-8')
+            st.download_button(
+                label="📥 Download Complete Rankings (CSV)",
+                data=ranking_csv,
+                file_name=f"complete_rankings_{variable}_{aggregation_method.replace(' ', '_')}.csv",
+                mime="text/csv"
+            )
+
+        # Footer
+        st.markdown("---")
+        st.markdown(
+            "<div style='text-align: center; color: gray; font-size: 12px;'>"
+            "Academic Spatial Distribution Analysis Tool | Version 2.1"
+            "</div>",
+            unsafe_allow_html=True
+        )
