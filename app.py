@@ -4,6 +4,7 @@ import pycountry
 import plotly.express as px
 import plotly.graph_objects as go
 import unicodedata
+import numpy as np
 from fuzzywuzzy import fuzz
 
 # Set the correct password
@@ -108,46 +109,94 @@ def check_password():
     return False
 
 # ============================================================
-# AGGREGATION FUNCTIONS
+# DATA CLEANING FUNCTION
+# ============================================================
+def clean_numeric_data(df, variable):
+    """Ensure numeric data is properly formatted"""
+    df_clean = df.copy()
+    
+    # Convert variable to numeric, handling errors
+    df_clean[variable] = pd.to_numeric(df_clean[variable], errors='coerce')
+    
+    # Remove any infinite values
+    df_clean = df_clean[~df_clean[variable].isin([np.inf, -np.inf])]
+    
+    # Remove NaN values in the variable
+    df_clean = df_clean.dropna(subset=[variable])
+    
+    return df_clean
+
+# ============================================================
+# AGGREGATION FUNCTIONS (CORRECTED)
 # ============================================================
 def aggregate_data(df, variable, aggregation_method):
     """
-    Aggregate data based on selected method
+    Aggregate data based on selected method - CORRECTED VERSION
     """
+    # Make a copy to avoid modifying original
+    df_work = df.copy()
+    
     if aggregation_method == "Total Sum":
-        aggregated = df.groupby('country', as_index=False).agg({
-            variable: 'sum',
+        # Group by country and sum the variable
+        aggregated = df_work.groupby('country', as_index=False).agg({
+            variable: 'sum'
         })
-        # Get the first occurrence of each country for additional info
-        first_occurrence = df.groupby('country').first().reset_index()
-        aggregated = pd.merge(aggregated, first_occurrence[['country']], on='country', how='left')
         aggregated.rename(columns={variable: f'{variable}_total'}, inplace=True)
         return aggregated, f'{variable}_total'
     
     elif aggregation_method == "Average":
-        aggregated = df.groupby('country', as_index=False).agg({
-            variable: 'mean',
+        # Group by country and calculate mean
+        aggregated = df_work.groupby('country', as_index=False).agg({
+            variable: 'mean'
         })
-        first_occurrence = df.groupby('country').first().reset_index()
-        aggregated = pd.merge(aggregated, first_occurrence[['country']], on='country', how='left')
         aggregated.rename(columns={variable: f'{variable}_avg'}, inplace=True)
         return aggregated, f'{variable}_avg'
     
     elif aggregation_method == "Maximum Value":
-        aggregated = df.groupby('country', as_index=False).agg({
-            variable: 'max',
+        # Group by country and get max value
+        aggregated = df_work.groupby('country', as_index=False).agg({
+            variable: 'max'
         })
-        first_occurrence = df.groupby('country').first().reset_index()
-        aggregated = pd.merge(aggregated, first_occurrence[['country']], on='country', how='left')
         aggregated.rename(columns={variable: f'{variable}_max'}, inplace=True)
         return aggregated, f'{variable}_max'
     
     elif aggregation_method == "Latest Year":
         # Get the most recent year for each country
-        time_col = [col for col in df.columns if col.lower() in ['year', 'time', 'date', 'period']][0]
-        latest_years = df.groupby('country')[time_col].max().reset_index()
-        aggregated = pd.merge(latest_years, df, on=['country', time_col], how='left')
+        time_col = [col for col in df_work.columns if col.lower() in ['year', 'time', 'date', 'period']][0]
+        # Find the latest year for each country
+        latest_indices = df_work.groupby('country')[time_col].idxmax()
+        aggregated = df_work.loc[latest_indices].reset_index(drop=True)
         return aggregated, variable
+
+# ============================================================
+# CALCULATION VERIFICATION
+# ============================================================
+def verify_calculations(df, variable, country_name="France"):
+    """
+    Verify calculations for a specific country
+    """
+    country_data = df[df['country'] == country_name]
+    if country_data.empty:
+        return f"No data found for {country_name}"
+    
+    total_sum = country_data[variable].sum()
+    average = country_data[variable].mean()
+    max_value = country_data[variable].max()
+    min_value = country_data[variable].min()
+    
+    result = f"""
+    **Calculation Verification for {country_name}:**
+    - **Total Sum**: {total_sum:,.2f}
+    - **Average**: {average:,.2f}
+    - **Maximum**: {max_value:,.2f}
+    - **Minimum**: {min_value:,.2f}
+    - **Number of years**: {len(country_data)}
+    """
+    
+    if 'year' in country_data.columns:
+        result += f"- **Years**: {sorted(country_data['year'].unique())}"
+    
+    return result, country_data
 
 # ============================================================
 # MAIN APP
@@ -215,6 +264,9 @@ if check_password():
 
         variable = st.selectbox("📊 Select variable to visualize:", numeric_cols)
         
+        # Clean numeric data
+        df = clean_numeric_data(df, variable)
+        
         if is_panel:
             time_col = time_cols[0]
             st.info(f"📊 Panel data detected (Time variable: **{time_col}**)")
@@ -273,6 +325,24 @@ if check_password():
             st.stop()
 
         st.success(f"✅ Mapped {len(df_clean)} countries successfully")
+
+        # Debug section - show calculation verification
+        if is_panel and st.checkbox("🔍 Show calculation verification (Debug)"):
+            st.markdown("### Calculation Verification")
+            verification, raw_data = verify_calculations(df, variable, "France")
+            st.markdown(verification)
+            
+            # Show the actual data for France
+            if 'year' in raw_data.columns:
+                france_data = raw_data[['year', variable]].sort_values('year')
+                st.write("**Raw data for France:**")
+                st.dataframe(france_data.style.format({variable: "{:,.2f}"}))
+            
+            # Show aggregated result
+            st.write("**Aggregated result for France:**")
+            if 'France' in df_clean['country'].values:
+                france_agg = df_clean[df_clean['country'] == 'France'][['country_name_official', display_variable]]
+                st.dataframe(france_agg.style.format({display_variable: "{:,.2f}"}))
 
         # Color scheme selection
         color_schemes = ['Viridis', 'Plasma', 'Inferno', 'Magma', 'Blues', 'Reds', 'YlOrRd', 'RdYlGn']
@@ -376,7 +446,7 @@ if check_password():
                 **Cumulative Performance Analysis:**
                 
                 The cumulative {variable.replace('_', ' ')} across all periods reveals long-term performance.
-                **{max_row['country_name_official']}** leads with total {display_variable.split('_')[1]} of {max_row[display_variable]:.2f}, 
+                **{max_row['country_name_official']}** leads with total of {max_row[display_variable]:.2f}, 
                 while **{min_row['country_name_official']}** shows the lowest cumulative value ({min_row[display_variable]:.2f}). 
                 This represents a {((max_row[display_variable] - min_row[display_variable]) / max_row[display_variable] * 100):.1f}% 
                 difference between the highest and lowest performing countries.
@@ -599,7 +669,7 @@ if check_password():
         st.markdown("---")
         st.markdown(
             "<div style='text-align: center; color: gray; font-size: 12px;'>"
-            "Academic Spatial Distribution Analysis Tool | Version 2.1"
+            "Academic Spatial Distribution Analysis Tool | Version 2.2"
             "</div>",
             unsafe_allow_html=True
         )
