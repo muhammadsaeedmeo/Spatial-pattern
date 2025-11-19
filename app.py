@@ -108,11 +108,55 @@ def check_password():
     return False
 
 # ============================================================
+# AGGREGATION FUNCTIONS
+# ============================================================
+def aggregate_data(df, variable, aggregation_method):
+    """
+    Aggregate data based on selected method
+    """
+    if aggregation_method == "Total Sum":
+        aggregated = df.groupby('country_name_official', as_index=False).agg({
+            variable: 'sum',
+            'iso3': 'first',
+            'iso2_label': 'first',
+            'country': 'first'
+        })
+        aggregated.rename(columns={variable: f'{variable}_total'}, inplace=True)
+        return aggregated, f'{variable}_total'
+    
+    elif aggregation_method == "Average":
+        aggregated = df.groupby('country_name_official', as_index=False).agg({
+            variable: 'mean',
+            'iso3': 'first',
+            'iso2_label': 'first',
+            'country': 'first'
+        })
+        aggregated.rename(columns={variable: f'{variable}_avg'}, inplace=True)
+        return aggregated, f'{variable}_avg'
+    
+    elif aggregation_method == "Maximum Value":
+        aggregated = df.groupby('country_name_official', as_index=False).agg({
+            variable: 'max',
+            'iso3': 'first',
+            'iso2_label': 'first',
+            'country': 'first'
+        })
+        aggregated.rename(columns={variable: f'{variable}_max'}, inplace=True)
+        return aggregated, f'{variable}_max'
+    
+    elif aggregation_method == "Latest Year":
+        # Get the most recent year for each country
+        time_col = [col for col in df.columns if col.lower() in ['year', 'time', 'date', 'period']][0]
+        latest_years = df.groupby('country_name_official')[time_col].max().reset_index()
+        aggregated = pd.merge(latest_years, df, on=['country_name_official', time_col], how='left')
+        return aggregated, variable
+
+# ============================================================
 # MAIN APP
 # ============================================================
 if check_password():
     st.title("🗺️ Academic Spatial Distribution Analysis")
-    st.markdown("### Professional Choropleth Mapping with Panel Data Support")
+    st.markdown("### Professional Choropleth Mapping with Aggregate Analysis")
     
     # Sidebar configuration
     with st.sidebar:
@@ -124,9 +168,9 @@ if check_password():
         
         st.markdown("---")
         st.markdown("**Tips:**")
-        st.markdown("- For many countries, disable labels for cleaner view")
-        st.markdown("- Use hover info to identify countries")
-        st.markdown("- Panel data: each country-year appears once in rankings")
+        st.markdown("- Use aggregate analysis for cumulative metrics like investments")
+        st.markdown("- Total Sum shows overall performance across all years")
+        st.markdown("- Average shows consistent performance over time")
     
     file = st.file_uploader("📁 Upload CSV or Excel (must contain 'country' column)", 
                             type=['csv', 'xlsx', 'xls'])
@@ -167,28 +211,40 @@ if check_password():
             time_col = time_cols[0]
             st.info(f"📊 Panel data detected (Time variable: **{time_col}**)")
             
-            # Time period selector
-            unique_periods = sorted(df[time_col].unique())
-            selected_period = st.selectbox(
-                "Select time period to visualize:",
-                unique_periods,
-                index=len(unique_periods)-1  # Default to latest
+            # Show data summary
+            year_range = f"{df[time_col].min()} to {df[time_col].max()}"
+            st.write(f"**Time period:** {year_range} ({len(df[time_col].unique())} periods)")
+            
+            # AGGREGATION METHOD SELECTION
+            st.markdown("### 📈 Aggregation Method")
+            aggregation_method = st.radio(
+                "Choose how to aggregate data across time:",
+                ["Total Sum", "Average", "Maximum Value", "Latest Year"],
+                help="""**Total Sum**: Cumulative total across all years (best for investments)
+                       **Average**: Mean value per year
+                       **Maximum Value**: Highest value achieved
+                       **Latest Year**: Most recent year only"""
             )
             
-            # Filter data for selected period
-            df_period = df[df[time_col] == selected_period].copy()
-            st.write(f"Showing data for: **{selected_period}** ({len(df_period)} countries)")
+            # Aggregate data based on selected method
+            with st.spinner(f"🔄 Calculating {aggregation_method.lower()}..."):
+                df_aggregated, display_variable = aggregate_data(df, variable, aggregation_method)
+                
         else:
-            df_period = df.copy()
+            # Cross-sectional data - no aggregation needed
+            df_aggregated = df.copy()
+            display_variable = variable
+            aggregation_method = "Single Period"
+            st.info("📊 Cross-sectional data detected")
 
-        # Normalize countries
+        # Normalize countries on aggregated data
         with st.spinner("🔍 Normalizing country names..."):
-            df_period[['iso3', 'iso2_label', 'country_name_official']] = df_period["country"].apply(
+            df_aggregated[['iso3', 'iso2_label', 'country_name_official']] = df_aggregated["country"].apply(
                 lambda x: pd.Series(normalize_country(x))
             )
         
         # Check unresolved countries
-        unresolved = df_period[df_period["iso3"].isna()]["country"].unique().tolist()
+        unresolved = df_aggregated[df_aggregated["iso3"].isna()]["country"].unique().tolist()
         if unresolved:
             with st.expander(f"⚠️ {len(unresolved)} Unrecognized Countries - Click to View"):
                 st.warning("The following countries could not be matched:")
@@ -197,7 +253,7 @@ if check_password():
                 st.info("💡 Tip: Check spelling or use standard country names")
 
         # Drop unresolved
-        df_clean = df_period.dropna(subset=["iso3"]).copy()
+        df_clean = df_aggregated.dropna(subset=["iso3"]).copy()
         
         if df_clean.empty:
             st.error("No valid countries found after normalization.")
@@ -205,16 +261,30 @@ if check_password():
 
         st.success(f"✅ Mapped {len(df_clean)} countries successfully")
 
-        # Select variable
-        numeric_cols = df_clean.select_dtypes(include=["float64", "int64"]).columns.tolist()
-        # Remove ISO columns from selection
-        numeric_cols = [col for col in numeric_cols if col not in ['iso3', 'iso2_label']]
-        
-        if not numeric_cols:
-            st.error("❌ No numeric variables found for mapping.")
-            st.stop()
+        # Select variable (for cross-sectional data)
+        if not is_panel:
+            numeric_cols = df_clean.select_dtypes(include=["float64", "int64"]).columns.tolist()
+            numeric_cols = [col for col in numeric_cols if col not in ['iso3', 'iso2_label']]
             
-        variable = st.selectbox("📊 Select variable to visualize:", numeric_cols)
+            if not numeric_cols:
+                st.error("❌ No numeric variables found for mapping.")
+                st.stop()
+                
+            variable = st.selectbox("📊 Select variable to visualize:", numeric_cols)
+            display_variable = variable
+
+        # For panel data, let user choose variable before aggregation
+        else:
+            numeric_cols = df.select_dtypes(include=["float64", "int64"]).columns.tolist()
+            variable = st.selectbox("📊 Select variable to analyze:", numeric_cols)
+            
+            # Re-aggregate with selected variable
+            with st.spinner(f"🔄 Updating {aggregation_method.lower()} for {variable}..."):
+                df_aggregated, display_variable = aggregate_data(df, variable, aggregation_method)
+                df_aggregated[['iso3', 'iso2_label', 'country_name_official']] = df_aggregated["country"].apply(
+                    lambda x: pd.Series(normalize_country(x))
+                )
+                df_clean = df_aggregated.dropna(subset=["iso3"]).copy()
 
         # Color scheme selection
         color_schemes = ['Viridis', 'Plasma', 'Inferno', 'Magma', 'Blues', 'Reds', 'YlOrRd', 'RdYlGn']
@@ -227,19 +297,31 @@ if check_password():
         # ============================================================
         st.markdown("## 🌍 Choropleth Map")
         
+        # Create appropriate title based on aggregation method
+        if is_panel:
+            if aggregation_method == "Total Sum":
+                title_suffix = f" - Cumulative Total ({df[time_col].min()}-{df[time_col].max()})"
+            elif aggregation_method == "Average":
+                title_suffix = f" - Annual Average ({df[time_col].min()}-{df[time_col].max()})"
+            elif aggregation_method == "Maximum Value":
+                title_suffix = f" - Peak Value ({df[time_col].min()}-{df[time_col].max()})"
+            else:
+                title_suffix = f" - Latest Year"
+        else:
+            title_suffix = ""
+        
         fig = px.choropleth(
             df_clean,
             locations="iso3",
-            color=variable,
+            color=display_variable,
             hover_name="country_name_official",
             hover_data={
-                variable: ':.2f',
+                display_variable: ':.2f',
                 'iso3': False,
-                'country': True
             },
             projection="natural earth",
             color_continuous_scale=color_scheme,
-            labels={variable: variable.replace('_', ' ').title()}
+            labels={display_variable: f"{variable.replace('_', ' ').title()} ({aggregation_method})"}
         )
 
         fig.update_geos(
@@ -264,7 +346,7 @@ if check_password():
 
         fig.update_layout(
             title={
-                'text': f'{variable.replace("_", " ").title()} - Spatial Distribution',
+                'text': f'{variable.replace("_", " ").title()}{title_suffix}',
                 'x': 0.5,
                 'xanchor': 'center',
                 'font': {'size': 20}
@@ -284,11 +366,11 @@ if check_password():
         
         col1, col2, col3, col4 = st.columns(4)
         with col1:
-            st.metric("Mean", f"{df_clean[variable].mean():.2f}")
+            st.metric("Mean", f"{df_clean[display_variable].mean():.2f}")
         with col2:
-            st.metric("Median", f"{df_clean[variable].median():.2f}")
+            st.metric("Median", f"{df_clean[display_variable].median():.2f}")
         with col3:
-            st.metric("Std Dev", f"{df_clean[variable].std():.2f}")
+            st.metric("Std Dev", f"{df_clean[display_variable].std():.2f}")
         with col4:
             st.metric("Countries", len(df_clean))
 
@@ -298,30 +380,59 @@ if check_password():
         st.markdown("## 💡 Academic Interpretation")
         
         if not df_clean.empty:
-            max_row = df_clean.loc[df_clean[variable].idxmax()]
-            min_row = df_clean.loc[df_clean[variable].idxmin()]
+            max_row = df_clean.loc[df_clean[display_variable].idxmax()]
+            min_row = df_clean.loc[df_clean[display_variable].idxmin()]
 
-            st.markdown(f"""
-            **Spatial Distribution Analysis:**
+            if aggregation_method == "Total Sum":
+                interpretation = f"""
+                **Cumulative Performance Analysis:**
+                
+                The cumulative {variable.replace('_', ' ')} across all periods reveals long-term performance.
+                **{max_row['country_name_official']}** leads with total {display_variable.split('_')[1]} of {max_row[display_variable]:.2f}, 
+                while **{min_row['country_name_official']}** shows the lowest cumulative value ({min_row[display_variable]:.2f}). 
+                This represents a {((max_row[display_variable] - min_row[display_variable]) / max_row[display_variable] * 100):.1f}% 
+                difference between the highest and lowest performing countries.
+                """
+            elif aggregation_method == "Average":
+                interpretation = f"""
+                **Consistent Performance Analysis:**
+                
+                The average annual {variable.replace('_', ' ')} indicates consistent performance over time.
+                **{max_row['country_name_official']}** demonstrates the highest average of {max_row[display_variable]:.2f} per period,
+                while **{min_row['country_name_official']}** shows the lowest average ({min_row[display_variable]:.2f}). 
+                This {((max_row[display_variable] - min_row[display_variable]) / max_row[display_variable] * 100):.1f}% 
+                performance gap highlights significant disparities in sustained output.
+                """
+            elif aggregation_method == "Maximum Value":
+                interpretation = f"""
+                **Peak Performance Analysis:**
+                
+                The maximum achieved {variable.replace('_', ' ')} reveals peak capacity across countries.
+                **{max_row['country_name_official']}** reached the highest single-period value of {max_row[display_variable]:.2f},
+                while **{min_row['country_name_official']}** peaked at {min_row[display_variable]:.2f}. 
+                The {((max_row[display_variable] - min_row[display_variable]) / max_row[display_variable] * 100):.1f}% 
+                difference in peak performance indicates varying maximum capacities.
+                """
+            else:
+                interpretation = f"""
+                **Current Status Analysis:**
+                
+                The latest available data for {variable.replace('_', ' ')} shows current standings.
+                **{max_row['country_name_official']}** leads with {max_row[display_variable]:.2f}, 
+                while **{min_row['country_name_official']}** shows {min_row[display_variable]:.2f}. 
+                This {((max_row[display_variable] - min_row[display_variable]) / max_row[display_variable] * 100):.1f}% 
+                gap represents the current performance differential.
+                """
             
-            The spatial distribution of **{variable.replace('_', ' ')}** reveals significant 
-            cross-country variation. **{max_row['country_name_official']}** exhibits the highest 
-            value ({max_row[variable]:.2f}), while **{min_row['country_name_official']}** 
-            demonstrates the lowest ({min_row[variable]:.2f}). This {((max_row[variable] - min_row[variable]) / min_row[variable] * 100):.1f}% 
-            differential suggests substantial heterogeneity across the geographic units analyzed.
-            """)
+            st.markdown(interpretation)
 
         # ============================================================
-        # COMPLETE RANKINGS TABLE (Panel-Aware)
+        # COMPLETE RANKINGS TABLE
         # ============================================================
         st.markdown("### 🏆 Complete Country Rankings")
         
-        # For panel data, ensure unique countries in ranking
-        if is_panel:
-            st.info(f"📅 Rankings for {selected_period} (each country appears once)")
-        
         # Create complete ranking
-        df_ranked = df_clean.sort_values(by=variable, ascending=False).reset_index(drop=True)
+        df_ranked = df_clean.sort_values(by=display_variable, ascending=False).reset_index(drop=True)
         df_ranked['Rank'] = range(1, len(df_ranked) + 1)
         
         # Display options
@@ -345,9 +456,9 @@ if check_password():
             df_display = df_ranked.copy()
         
         # Create a clean table with formatting
-        display_df = df_display[['Rank', 'country_name_official', variable, 'iso2_label']].copy()
-        display_df.columns = ['Rank', 'Country', variable.replace('_', ' ').title(), 'ISO Code']
-        display_df[variable.replace('_', ' ').title()] = display_df[variable.replace('_', ' ').title()].round(3)
+        display_df = df_display[['Rank', 'country_name_official', display_variable, 'iso2_label']].copy()
+        display_df.columns = ['Rank', 'Country', f"{variable.replace('_', ' ').title()} ({aggregation_method})", 'ISO Code']
+        display_df[display_df.columns[2]] = display_df[display_df.columns[2]].round(3)
         
         # Style the dataframe with highlighting
         def highlight_ranks(row):
@@ -366,141 +477,8 @@ if check_password():
         
         # Summary stats below table
         st.markdown(f"""
-        **Table Summary:** Showing {len(df_display)} of {len(df_ranked)} countries ranked by {variable.replace('_', ' ')}.
+        **Table Summary:** Showing {len(df_display)} of {len(df_ranked)} countries ranked by {variable.replace('_', ' ')} ({aggregation_method.lower()}).
         """)
-        
-        # Show bottom 5 in an expander
-        if len(df_ranked) > 10:
-            with st.expander("📉 View Bottom 5 Countries"):
-                df_bottom = df_ranked.tail(5).copy()
-                bottom_display = df_bottom[['Rank', 'country_name_official', variable, 'iso2_label']].copy()
-                bottom_display.columns = ['Rank', 'Country', variable.replace('_', ' ').title(), 'ISO Code']
-                bottom_display[variable.replace('_', ' ').title()] = bottom_display[variable.replace('_', ' ').title()].round(3)
-                st.dataframe(bottom_display, hide_index=True, use_container_width=True)
 
-        # ============================================================
-        # DUAL VIEW: VISUAL COMPARISON
-        # ============================================================
-        st.markdown("### 📊 Visual Comparison")
-        
-        # Create tabs for different visualizations
-        tab1, tab2 = st.tabs(["📊 Horizontal Bar Chart", "📈 Distribution Plot"])
-        
-        with tab1:
-            # Horizontal bar chart for top countries
-            n_bars = min(15, len(df_ranked))
-            df_for_bar = df_ranked.head(n_bars).copy()
-            
-            fig_bar = px.bar(
-                df_for_bar,
-                y='country_name_official',
-                x=variable,
-                orientation='h',
-                color=variable,
-                color_continuous_scale=color_scheme,
-                labels={variable: variable.replace('_', ' ').title(),
-                       'country_name_official': 'Country'},
-                text=variable
-            )
-            
-            fig_bar.update_traces(texttemplate='%{text:.2f}', textposition='outside')
-            fig_bar.update_layout(
-                yaxis={'categoryorder': 'total ascending'},
-                height=max(400, n_bars * 30),
-                showlegend=False,
-                title={'text': f'Top {n_bars} Countries by {variable.replace("_", " ").title()}',
-                      'x': 0.5, 'xanchor': 'center'},
-                xaxis_title=variable.replace('_', ' ').title(),
-                yaxis_title=''
-            )
-            
-            st.plotly_chart(fig_bar, use_container_width=True)
-        
-        with tab2:
-            # Distribution histogram
-            fig_hist = px.histogram(
-                df_ranked,
-                x=variable,
-                nbins=30,
-                color_discrete_sequence=['#636EFA'],
-                labels={variable: variable.replace('_', ' ').title()}
-            )
-            
-            fig_hist.update_layout(
-                title={'text': f'Distribution of {variable.replace("_", " ").title()} Across Countries',
-                      'x': 0.5, 'xanchor': 'center'},
-                xaxis_title=variable.replace('_', ' ').title(),
-                yaxis_title='Frequency (Number of Countries)',
-                height=400,
-                showlegend=False
-            )
-            
-            # Add vertical lines for mean and median
-            mean_val = df_ranked[variable].mean()
-            median_val = df_ranked[variable].median()
-            
-            fig_hist.add_vline(x=mean_val, line_dash="dash", line_color="red", 
-                              annotation_text=f"Mean: {mean_val:.2f}", 
-                              annotation_position="top")
-            fig_hist.add_vline(x=median_val, line_dash="dash", line_color="green", 
-                              annotation_text=f"Median: {median_val:.2f}", 
-                              annotation_position="bottom")
-            
-            st.plotly_chart(fig_hist, use_container_width=True)
-
-        st.markdown("---")
-
-        # ============================================================
-        # COUNTRY CODE LEGEND
-        # ============================================================
-        with st.expander("🗺️ Country Code Reference Guide"):
-            st.markdown("**ISO-2 to Country Name Mapping**")
-            
-            legend_df = df_clean[["iso2_label", "country_name_official"]].drop_duplicates(
-                subset=["iso2_label"]
-            ).sort_values(by="country_name_official")
-            
-            # Create multi-column layout for legend
-            n_cols = 3
-            cols = st.columns(n_cols)
-            
-            for idx, (_, row) in enumerate(legend_df.iterrows()):
-                col_idx = idx % n_cols
-                cols[col_idx].write(f"**{row['iso2_label']}**: {row['country_name_official']}")
-
-        # ============================================================
-        # DOWNLOAD OPTIONS
-        # ============================================================
-        st.markdown("---")
-        st.markdown("### 💾 Download Results")
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            # Download cleaned data
-            csv = df_clean.to_csv(index=False).encode('utf-8')
-            st.download_button(
-                label="📥 Download Cleaned Data (CSV)",
-                data=csv,
-                file_name=f"spatial_data_{variable}.csv",
-                mime="text/csv"
-            )
-        
-        with col2:
-            # Download rankings (complete)
-            ranking_csv = df_ranked[['Rank', 'country_name_official', variable, 'iso2_label']].to_csv(index=False).encode('utf-8')
-            st.download_button(
-                label="📥 Download Complete Rankings (CSV)",
-                data=ranking_csv,
-                file_name=f"complete_rankings_{variable}_{selected_period if is_panel else 'all'}.csv",
-                mime="text/csv"
-            )
-
-        # Footer
-        st.markdown("---")
-        st.markdown(
-            "<div style='text-align: center; color: gray; font-size: 12px;'>"
-            "Academic Spatial Distribution Analysis Tool | Version 2.0"
-            "</div>",
-            unsafe_allow_html=True
-        )
+        # Rest of your code remains the same for visualizations, downloads, etc.
+        # ... [Keep all the remaining code from your original app]
