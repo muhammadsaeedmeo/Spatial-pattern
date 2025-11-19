@@ -5,3 +5,4 @@ plotly>=5.13.0
 fuzzywuzzy>=0.18.0
 python-levenshtein>=0.21.0
 openpyxl>=3.0.0
+numpy>=1.21.0
